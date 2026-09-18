@@ -508,14 +508,34 @@ export async function createFramesZip(
   const folderName = `${videoName.replace(/\.[^/.]+$/, '')}_Frames`;
   const folder = zip.folder(folderName) || zip;
 
-  frames.forEach((frame) => {
-    const padNum = frame.frameIndex.toString().padStart(4, '0');
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
+    const padNum = (frame.frameIndex || i + 1).toString().padStart(4, '0');
     let filename = `${namingPattern}_${padNum}.${extension}`;
     if (namingPattern.includes('{number}')) {
       filename = namingPattern.replace('{number}', padNum) + `.${extension}`;
     }
-    folder.file(filename, frame.blob);
-  });
+
+    let fileData: Blob | string = frame.blob;
+    if (!fileData && frame.dataUrl) {
+      try {
+        const response = await fetch(frame.dataUrl);
+        fileData = await response.blob();
+      } catch (e) {
+        // Fallback to base64 stripping
+        const base64Index = frame.dataUrl.indexOf(',');
+        if (base64Index > -1) {
+          fileData = frame.dataUrl.slice(base64Index + 1);
+          folder.file(filename, fileData, { base64: true });
+          continue;
+        }
+      }
+    }
+
+    if (fileData) {
+      folder.file(filename, fileData);
+    }
+  }
 
   if (contactSheetBlob) {
     folder.file(`${videoName.replace(/\.[^/.]+$/, '')}_ContactSheet.jpg`, contactSheetBlob);
@@ -525,9 +545,9 @@ export async function createFramesZip(
     sourceVideo: videoName,
     totalFrames: frames.length,
     extractedAt: new Date().toISOString(),
-    generator: 'ConvertPro Video Frame Studio (100% Free Lifetime Pass)',
-    frames: frames.map(f => ({
-      index: f.frameIndex,
+    generator: 'OMNIFY Universal Video Studio (100% Free Lifetime Pass)',
+    frames: frames.map((f, idx) => ({
+      index: f.frameIndex || idx + 1,
       timestamp: f.timestamp,
       formattedTime: f.formattedTime,
       sharpness: f.sharpnessScore,
@@ -536,7 +556,7 @@ export async function createFramesZip(
   };
   folder.file('metadata.json', JSON.stringify(manifest, null, 2));
 
-  return await zip.generateAsync({ type: 'blob' });
+  return await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
 }
 
 /**

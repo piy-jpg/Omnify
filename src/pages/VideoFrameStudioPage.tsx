@@ -384,6 +384,45 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
     }
   };
 
+  // Instant single frame download with direct Blob URL
+  const handleDownloadSingleFrame = async (frame: ExtractedFrame, index?: number) => {
+    try {
+      const ext = outputFormat === 'image/png' ? 'png' : outputFormat === 'image/webp' ? 'webp' : 'jpg';
+      const frameNum = String((index !== undefined ? index + 1 : frame.frameIndex) || 1).padStart(3, '0');
+      const filename = `frame_${frameNum}.${ext}`;
+
+      let blobToDownload = frame.blob;
+      if (!blobToDownload && frame.dataUrl) {
+        try {
+          const res = await fetch(frame.dataUrl);
+          blobToDownload = await res.blob();
+        } catch (err) {
+          // Fallback
+        }
+      }
+
+      if (blobToDownload) {
+        const downloadUrl = URL.createObjectURL(blobToDownload);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1500);
+      } else if (frame.dataUrl) {
+        const link = document.createElement('a');
+        link.href = frame.dataUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+    } catch (e) {
+      console.error('Single frame download error:', e);
+    }
+  };
+
   // Keyboard navigation for Sequential Lightbox
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1529,15 +1568,17 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
                   >
                     <Eye className="w-4 h-4" />
                   </button>
-                  <a
-                    href={frame.dataUrl}
-                    download={`frame_${String(idx + 1).padStart(3, '0')}.${outputFormat === 'image/png' ? 'png' : 'jpg'}`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="p-2 rounded-xl bg-purple-600 text-white shadow-md transform hover:scale-110 transition-transform"
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDownloadSingleFrame(frame, idx);
+                    }}
+                    className="p-2 rounded-xl bg-purple-600 text-white shadow-md transform hover:scale-110 transition-transform cursor-pointer"
                     title="Download Frame"
                   >
                     <Download className="w-4 h-4" />
-                  </a>
+                  </button>
                 </div>
 
                 {/* Bottom Time & Sharpness Info */}
@@ -1575,14 +1616,14 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              <a
-                href={frames[lightboxIndex].dataUrl}
-                download={`frame_${String(lightboxIndex + 1).padStart(3, '0')}.${outputFormat === 'image/png' ? 'png' : 'jpg'}`}
-                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-md"
+              <button
+                type="button"
+                onClick={() => handleDownloadSingleFrame(frames[lightboxIndex], lightboxIndex)}
+                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Download Frame</span>
-              </a>
+              </button>
               <button
                 onClick={() => setLightboxIndex(null)}
                 className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
