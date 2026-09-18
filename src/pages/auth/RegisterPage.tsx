@@ -68,6 +68,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   const [devOtp, setDevOtp] = useState<string>('');
   const [countdown, setCountdown] = useState<number>(30);
   const [resendNotice, setResendNotice] = useState<string | null>(null);
+  const [registrationId, setRegistrationId] = useState<string>('');
   const [tempToken, setTempToken] = useState<string>('');
   const otpInputRef = useRef<HTMLInputElement>(null);
 
@@ -143,6 +144,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         age: parseInt(age, 10),
         phone: phone.trim() ? phone.trim() : undefined
       });
+      if (res?.registrationId) {
+        setRegistrationId(res.registrationId);
+      }
       if (res?.devOtp) {
         setDevOtp(res.devOtp);
       }
@@ -170,9 +174,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
     setIsLoading(true);
 
     try {
-      const res = await registerStep2VerifyOtp(email.trim().toLowerCase(), code);
+      const res = await registerStep2VerifyOtp(email.trim().toLowerCase(), code, registrationId);
       if (res.tempToken) {
         setTempToken(res.tempToken);
+      }
+      if (res.registrationId) {
+        setRegistrationId(res.registrationId);
       }
       setCurrentStep(3);
     } catch (err: any) {
@@ -190,6 +197,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
     try {
       const res = await resendOtp();
+      if (res?.registrationId) {
+        setRegistrationId(res.registrationId);
+      }
       if (res?.devOtp) {
         setDevOtp(res.devOtp);
       }
@@ -223,7 +233,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
     setIsLoading(true);
     try {
-      await registerStep3SetPassword(email.trim().toLowerCase(), password, tempToken);
+      await registerStep3SetPassword(email.trim().toLowerCase(), password, tempToken, registrationId);
       
       // Joyful celebration confetti
       confetti({

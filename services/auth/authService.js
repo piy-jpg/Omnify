@@ -43,9 +43,40 @@ try {
 const USERS_DB_FILE = path.join(DATA_DIR, 'users.json');
 const SESSIONS_DB_FILE = path.join(DATA_DIR, 'sessions.json');
 
-// In-memory OTP & Pending registration state store
-// Keyed by registrationId AND normalizedEmail
+// In-memory OTP & Pending registration state store (local speed cache)
 const otpStore = new Map();
+
+// Cryptographic Secret for Stateless Serverless Auth Tokens
+const SECRET_AUTH_KEY = process.env.AUTH_SECRET || process.env.GOOGLE_CLIENT_SECRET || 'omnify_stateless_crypto_token_secret_key_2026';
+
+export function createSignedToken(payload) {
+  try {
+    const jsonStr = JSON.stringify(payload);
+    const base64Data = Buffer.from(jsonStr, 'utf8').toString('base64url');
+    const signature = crypto.createHmac('sha256', SECRET_AUTH_KEY).update(base64Data).digest('base64url');
+    return `${base64Data}.${signature}`;
+  } catch (e) {
+    return '';
+  }
+}
+
+export function verifySignedToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [base64Data, signature] = parts;
+  try {
+    const expectedSig = crypto.createHmac('sha256', SECRET_AUTH_KEY).update(base64Data).digest('base64url');
+    if (signature !== expectedSig) return null;
+    const payload = JSON.parse(Buffer.from(base64Data, 'base64url').toString('utf8'));
+    if (payload.exp && Date.now() > payload.exp) {
+      return null;
+    }
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
 
 /**
  * PBKDF2 Password Hashing
@@ -185,7 +216,20 @@ export async function requestRegisterOtp({ name, email, category, age, phone }) 
   const otpCode = generateCryptoOtp();
   const salt = crypto.randomBytes(16).toString('hex');
   const hashedOtp = hashOtp(otpCode, salt);
-  const registrationId = `reg_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+  // Generate Stateless Signed Registration Token (valid for 10 minutes)
+  const tokenPayload = {
+    type: 'reg_otp',
+    email: normalizedEmail,
+    name: trimmedName,
+    category,
+    age: numAge,
+    phone: phone ? normalizePhoneNumber(phone) : '',
+    salt,
+    hashedOtp,
+    exp: now + 10 * 60 * 1000
+  };
+  const registrationId = createSignedToken(tokenPayload);
 
   const otpRecord = {
     registrationId,
@@ -199,11 +243,11 @@ export async function requestRegisterOtp({ name, email, category, age, phone }) 
     attempts: 0,
     maxAttempts: 5,
     createdAt: now,
-    expiresAt: now + 5 * 60 * 1000, // 5 minutes
-    resendAvailableAt: now + 30 * 1000 // 30 seconds cooldown
+    expiresAt: now + 10 * 60 * 1000,
+    resendAvailableAt: now + 30 * 1000
   };
 
-  // Store in memory
+  // Store in memory cache
   otpStore.set(registrationId, otpRecord);
   otpStore.set(`email_${normalizedEmail}`, otpRecord);
 
@@ -220,7 +264,7 @@ export async function requestRegisterOtp({ name, email, category, age, phone }) 
     email: normalizedEmail,
     maskedEmail: maskEmail(normalizedEmail),
     resendCooldown: 30,
-    expiresIn: 300,
+    expiresIn: 600,
     provider: emailResult.provider,
     devOtp: emailResult.devOtp,
     message: `Verification code sent to ${maskEmail(normalizedEmail)}`
@@ -233,15 +277,18 @@ export async function requestRegisterOtp({ name, email, category, age, phone }) 
  */
 export async function verifyRegisterOtp({ registrationId, email, identifier, otp }) {
   const normalizedEmail = normalizeEmail(email || identifier);
-  const key = registrationId || (normalizedEmail ? `email_${normalizedEmail}` : null);
 
-  if (!key) {
-    throw new Error('Missing registration session. Please start registration again.');
-  }
-
-  let record = otpStore.get(key);
-  if (!record && normalizedEmail) {
-    record = otpStore.get(`email_${normalizedEmail}`);
+  // 1. Verify via Signed Stateless Token (survives any serverless restart/container cold start)
+  let record = verifySignedToken(registrationId);
+  if (!record || record.type !== 'reg_otp') {
+    // 2. Fallback to in-memory store
+    const key = registrationId || (normalizedEmail ? `email_${normalizedEmail}` : null);
+    if (key) {
+      record = otpStore.get(key);
+      if (!record && normalizedEmail) {
+        record = otpStore.get(`email_${normalizedEmail}`);
+      }
+    }
   }
 
   if (!record) {
@@ -249,39 +296,44 @@ export async function verifyRegisterOtp({ registrationId, email, identifier, otp
   }
 
   const now = Date.now();
-  if (now > record.expiresAt) {
-    otpStore.delete(record.registrationId);
-    otpStore.delete(`email_${record.email}`);
+  const expiry = record.exp || record.expiresAt;
+  if (expiry && now > expiry) {
+    if (record.registrationId) otpStore.delete(record.registrationId);
+    if (record.email) otpStore.delete(`email_${record.email}`);
     throw new Error('Verification code has expired. Please request a new one.');
   }
-
-  if (record.attempts >= record.maxAttempts) {
-    otpStore.delete(record.registrationId);
-    otpStore.delete(`email_${record.email}`);
-    throw new Error('Maximum verification attempts exceeded. Please request a new code.');
-  }
-
-  record.attempts += 1;
 
   const cleanOtp = String(otp || '').trim();
   const inputHash = hashOtp(cleanOtp, record.salt);
 
   if (inputHash !== record.hashedOtp) {
-    const remaining = record.maxAttempts - record.attempts;
-    throw new Error(`Invalid verification code. ${remaining} attempt(s) remaining.`);
+    throw new Error('Invalid verification code. Please check your email and try again.');
   }
 
-  // Issue temporary completion token (valid for 15 minutes)
-  const tempToken = `tmp_${crypto.randomBytes(24).toString('hex')}`;
-  record.verified = true;
-  record.tempToken = tempToken;
-  record.tempTokenExpiresAt = now + 15 * 60 * 1000;
+  // Issue Cryptographically Signed Temporary Completion Token (valid for 30 minutes)
+  const verifiedPayload = {
+    type: 'temp_verified',
+    email: record.email || normalizedEmail,
+    name: record.name,
+    category: record.category,
+    age: record.age,
+    phone: record.phone || '',
+    verifiedAt: now,
+    exp: now + 30 * 60 * 1000
+  };
+  const tempToken = createSignedToken(verifiedPayload);
+
+  if (record.registrationId) {
+    record.verified = true;
+    record.tempToken = tempToken;
+    otpStore.set(record.registrationId, record);
+  }
 
   return {
     success: true,
     verified: true,
-    registrationId: record.registrationId,
-    email: record.email,
+    registrationId: registrationId || record.registrationId,
+    email: record.email || normalizedEmail,
     tempToken,
     message: 'Email verified successfully! Please create your password.'
   };
@@ -293,25 +345,25 @@ export async function verifyRegisterOtp({ registrationId, email, identifier, otp
  */
 export async function completeRegistrationWithPassword({ registrationId, email, identifier, password, tempToken }) {
   const normalizedEmail = normalizeEmail(email || identifier);
-  const key = registrationId || (normalizedEmail ? `email_${normalizedEmail}` : null);
 
-  if (!key) {
-    throw new Error('Registration session not found.');
+  // 1. Verify Cryptographically Signed Temp Token (completely stateless and serverless safe)
+  let record = verifySignedToken(tempToken);
+  if (!record || record.type !== 'temp_verified') {
+    // 2. Fallback to memory store if present
+    const key = registrationId || (normalizedEmail ? `email_${normalizedEmail}` : null);
+    if (key) {
+      record = otpStore.get(key);
+      if (!record && normalizedEmail) {
+        record = otpStore.get(`email_${normalizedEmail}`);
+      }
+    }
   }
 
-  let record = otpStore.get(key);
-  if (!record && normalizedEmail) {
-    record = otpStore.get(`email_${normalizedEmail}`);
+  if (!record) {
+    throw new Error('Verification session expired or not found. Please request a new code.');
   }
 
-  if (!record || !record.verified) {
-    throw new Error('Please verify your email address first before setting a password.');
-  }
-
-  if (record.tempToken !== tempToken) {
-    throw new Error('Invalid or expired security token. Please re-verify your email.');
-  }
-
+  const targetEmail = normalizeEmail(record.email || normalizedEmail);
   const trimmedPassword = String(password || '').trim();
   if (trimmedPassword.length < 6) {
     throw new Error('Password must be at least 6 characters long.');
@@ -321,14 +373,14 @@ export async function completeRegistrationWithPassword({ registrationId, email, 
   const { salt: passwordSalt, hash: passwordHash } = hashPassword(trimmedPassword);
 
   const users = readUsers();
-  const existingIdx = users.findIndex(u => u.email === record.email);
+  const existingIdx = users.findIndex(u => u.email === targetEmail);
 
   const userId = existingIdx >= 0 ? users[existingIdx].id : `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
   const newUser = {
     id: userId,
-    name: record.name,
-    email: record.email,
+    name: record.name || targetEmail.split('@')[0],
+    email: targetEmail,
     phone: record.phone || '',
     category: record.category || 'Developer',
     age: record.age || 22,
@@ -349,18 +401,27 @@ export async function completeRegistrationWithPassword({ registrationId, email, 
 
   writeUsers(users);
 
-  // Clean up OTP store
-  otpStore.delete(record.registrationId);
-  otpStore.delete(`email_${record.email}`);
+  // Clean up in-memory store
+  if (registrationId) otpStore.delete(registrationId);
+  otpStore.delete(`email_${targetEmail}`);
 
-  // Create persistent session
-  const sessionToken = `ses_${crypto.randomBytes(32).toString('hex')}`;
+  // Create Stateless Signed 30-Day Session Token
+  const sessionPayload = {
+    type: 'session',
+    userId: newUser.id,
+    email: newUser.email,
+    name: newUser.name,
+    category: newUser.category,
+    exp: Date.now() + 30 * 24 * 60 * 60 * 1000
+  };
+  const sessionToken = createSignedToken(sessionPayload);
+
   const sessions = readSessions();
   sessions[sessionToken] = {
     userId: newUser.id,
     email: newUser.email,
     createdAt: Date.now(),
-    expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 // 30 days
+    expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000
   };
   writeSessions(sessions);
 
@@ -382,7 +443,7 @@ export async function completeRegistrationWithPassword({ registrationId, email, 
     success: true,
     user: publicUser,
     sessionToken,
-    expiresAt: sessions[sessionToken].expiresAt,
+    expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
     message: 'Welcome to OMNIFY! Your account is active.'
   };
 }
@@ -665,6 +726,44 @@ export async function authenticateWithGoogle({ email, name, avatar, credential }
  */
 export async function getSessionUser(sessionToken) {
   if (!sessionToken) return null;
+
+  // 1. Verify Signed Stateless Session Token
+  const signedPayload = verifySignedToken(sessionToken);
+  if (signedPayload && signedPayload.type === 'session') {
+    const users = readUsers();
+    const user = users.find(u => u.id === signedPayload.userId || u.email === signedPayload.email);
+    if (user) {
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone || '',
+        category: user.category || 'Developer',
+        age: user.age || 22,
+        plan: user.plan || '100% Free Lifetime Pass',
+        avatar: user.avatar,
+        emailVerified: user.emailVerified ?? true,
+        storageQuotaGb: user.storageQuotaGb || 100,
+        createdAt: user.createdAt
+      };
+    }
+
+    // If running in ephemeral serverless lambda where users.json is fresh, construct from signed payload
+    return {
+      id: signedPayload.userId,
+      name: signedPayload.name || signedPayload.email.split('@')[0],
+      email: signedPayload.email,
+      phone: signedPayload.phone || '',
+      category: signedPayload.category || 'Developer',
+      age: signedPayload.age || 22,
+      plan: '100% Free Lifetime Pass',
+      emailVerified: true,
+      storageQuotaGb: 100,
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  // 2. Fallback to sessions JSON store
   const sessions = readSessions();
   const session = sessions[sessionToken];
 
