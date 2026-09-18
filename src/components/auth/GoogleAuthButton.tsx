@@ -153,6 +153,10 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
                 setIsSubmitting(false);
               }
             }
+          },
+          error_callback: (nonOAuthErr: any) => {
+            console.warn('[Google OAuth Non-OAuth Error]:', nonOAuthErr);
+            setIsOpen(true);
           }
         });
 
