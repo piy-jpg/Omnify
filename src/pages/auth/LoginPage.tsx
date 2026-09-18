@@ -17,19 +17,15 @@ import {
 
 interface LoginPageProps {
   onNavigateRegister: () => void;
-  onNavigateOtp: () => void;
+  onNavigateOtp?: () => void;
   onSuccess?: () => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({
   onNavigateRegister,
-  onNavigateOtp,
   onSuccess
 }) => {
-  const { loginWithPassword, loginWithOtp } = useAuth();
-
-  // Login Mode: 'password' | 'otp'
-  const [loginMode, setLoginMode] = useState<'password' | 'otp'>('password');
+  const { loginWithPassword } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -48,24 +44,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
+    if (!password) {
+      setError('Please enter your password.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      if (loginMode === 'password') {
-        if (!password) {
-          setError('Please enter your password.');
-          setIsLoading(false);
-          return;
-        }
-        await loginWithPassword(cleanEmail, password);
-        if (onSuccess) onSuccess();
-      } else {
-        // Passwordless Email OTP Login
-        await loginWithOtp(cleanEmail);
-        onNavigateOtp();
-      }
+      await loginWithPassword(cleanEmail, password);
+      if (onSuccess) onSuccess();
     } catch (err: any) {
-      setError(err.message || 'Login failed. Please check your credentials.');
+      setError(err.message || 'Login failed. Please check your email or password.');
     } finally {
       setIsLoading(false);
     }
@@ -113,41 +103,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
           </div>
 
-          {/* Login Mode Toggle Pills */}
-          <div className="p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 flex items-center gap-1 border border-slate-200/60 dark:border-slate-700/60">
-            <button
-              type="button"
-              onClick={() => {
-                setLoginMode('password');
-                setError(null);
-              }}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                loginMode === 'password'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
-            >
-              <KeyRound className="w-3.5 h-3.5" />
-              <span>Email &amp; Password</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setLoginMode('otp');
-                setError(null);
-              }}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                loginMode === 'otp'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
-            >
-              <Mail className="w-3.5 h-3.5" />
-              <span>Instant Email OTP</span>
-            </button>
-          </div>
-
           {/* Error Message */}
           {error && (
             <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900/50 text-xs text-rose-600 dark:text-rose-400 flex items-start gap-2.5 animate-in fade-in">
@@ -156,7 +111,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
           )}
 
-          {/* Form */}
+          {/* Direct Email & Password Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             
             {/* Email Field */}
@@ -167,6 +122,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <div className="relative">
                 <input
                   type="email"
+                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@example.com"
@@ -177,46 +133,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
 
-            {/* Password Field (Only in Password mode) */}
-            {loginMode === 'password' && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Password
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setLoginMode('otp')}
-                    className="text-[11px] font-bold text-brand-600 dark:text-brand-400 hover:underline cursor-pointer"
-                  >
-                    Forgot? Log in with OTP
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your account password"
-                    disabled={isLoading}
-                    className="w-full px-4 py-3 pr-10 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-brand-500 outline-none transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
+            {/* Password Field */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your account password"
+                  disabled={isLoading}
+                  className="w-full px-4 py-3 pr-10 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
-            )}
-
-            {loginMode === 'otp' && (
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                A 6-digit security code will be sent to your email for passwordless entry.
-              </p>
-            )}
+            </div>
 
             {/* Submit Button */}
             <button
@@ -227,11 +167,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {isLoading ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>{loginMode === 'password' ? 'Signing In...' : 'Dispatching OTP...'}</span>
+                  <span>Signing In...</span>
                 </>
               ) : (
                 <>
-                  <span>{loginMode === 'password' ? 'Sign In' : 'Send Verification Code'}</span>
+                  <span>Sign In</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
