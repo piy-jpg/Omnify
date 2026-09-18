@@ -136,6 +136,7 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [contactSheetUrl, setContactSheetUrl] = useState<string | null>(null);
   const [isGeneratingSheet, setIsGeneratingSheet] = useState(false);
+  const [isDownloadingFrames, setIsDownloadingFrames] = useState(false);
 
   // Tool 2: Audio Extractor States
   const [extractedAudioUrl, setExtractedAudioUrl] = useState<string | null>(null);
@@ -341,6 +342,45 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
       console.error('Contact sheet generation failed:', err);
     } finally {
       setIsGeneratingSheet(false);
+    }
+  };
+
+  // Package the actual extracted frame blobs and hand the completed archive to the browser.
+  const handleDownloadFramesZip = async () => {
+    if (frames.length === 0 || isDownloadingFrames) return;
+
+    setIsDownloadingFrames(true);
+    try {
+      const extensionByMimeType: Record<ExtractionConfig['outputFormat'], string> = {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp'
+      };
+      const sourceName = videoFile?.name || metadata?.name || 'video';
+      const contactSheetBlob = contactSheetUrl
+        ? await fetch(contactSheetUrl).then(response => response.blob())
+        : undefined;
+      const zipBlob = await createFramesZip(
+        frames,
+        sourceName,
+        extensionByMimeType[outputFormat],
+        namingPattern || 'frame',
+        contactSheetBlob
+      );
+      const downloadUrl = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `${sourceName.replace(/\.[^/.]+$/, '')}_Frames.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Keep the object URL alive long enough for Safari and mobile browsers to begin the download.
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1_000);
+      confetti({ particleCount: 45, spread: 55, origin: { y: 0.65 } });
+    } catch (error) {
+      console.error('Frame ZIP download failed:', error);
+    } finally {
+      setIsDownloadingFrames(false);
     }
   };
 
@@ -976,11 +1016,12 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
                     {frames.length} images generated
                   </span>
                   <button
-                    onClick={() => createFramesZip(frames, outputFormat === 'image/png' ? 'png' : 'jpg')}
-                    className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs"
+                    onClick={handleDownloadFramesZip}
+                    disabled={isDownloadingFrames}
+                    className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs disabled:cursor-wait disabled:opacity-70"
                   >
                     <FileArchive className="w-3.5 h-3.5" />
-                    <span>Download Images (ZIP)</span>
+                    <span>{isDownloadingFrames ? 'Preparing ZIP...' : 'Download Images (ZIP)'}</span>
                   </button>
                 </div>
               )}
@@ -1435,11 +1476,12 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
               </button>
 
               <button
-                onClick={() => createFramesZip(frames, outputFormat === 'image/png' ? 'png' : 'jpg')}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition-all flex items-center gap-1.5"
+                onClick={handleDownloadFramesZip}
+                disabled={isDownloadingFrames}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition-all flex items-center gap-1.5 disabled:cursor-wait disabled:opacity-70"
               >
                 <FileArchive className="w-3.5 h-3.5" />
-                <span>Download All (ZIP)</span>
+                <span>{isDownloadingFrames ? 'Preparing ZIP...' : 'Download All (ZIP)'}</span>
               </button>
 
               <button
