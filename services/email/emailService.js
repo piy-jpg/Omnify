@@ -223,6 +223,7 @@ export async function sendEmailOtp({ toEmail, otpCode, recipientName = 'User' })
   };
 
   console.log(`[Email Service] Dispathing OTP to ${normalizedTo}...`);
+  const deliveryErrors = [];
 
   // 1. Try Resend if configured
   if (process.env.RESEND_API_KEY) {
@@ -231,8 +232,11 @@ export async function sendEmailOtp({ toEmail, otpCode, recipientName = 'User' })
       console.log(`[Email Service] Delivered via Resend: ${res.messageId}`);
       return res;
     } catch (resendErr) {
+      deliveryErrors.push(`Resend: ${resendErr.message}`);
       console.warn(`[Email Service] Resend failed (${resendErr.message}), trying SMTP...`);
     }
+  } else {
+    deliveryErrors.push('Resend: RESEND_API_KEY not configured');
   }
 
   // 2. Try Primary SMTP (e.g. port 465)
@@ -243,6 +247,7 @@ export async function sendEmailOtp({ toEmail, otpCode, recipientName = 'User' })
       console.log(`[Email Service] Delivered via SMTP (Port 465): ${info.messageId}`);
       return { success: true, messageId: info.messageId, provider: 'smtp-465' };
     } catch (smtpErr465) {
+      deliveryErrors.push(`SMTP 465: ${smtpErr465.message}`);
       console.warn(`[Email Service] Port 465 failed (${smtpErr465.message}), trying Port 587...`);
       
       // 3. Try Fallback SMTP (port 587 STARTTLS)
@@ -253,10 +258,13 @@ export async function sendEmailOtp({ toEmail, otpCode, recipientName = 'User' })
           console.log(`[Email Service] Delivered via SMTP (Port 587): ${infoFallback.messageId}`);
           return { success: true, messageId: infoFallback.messageId, provider: 'smtp-587' };
         } catch (smtpErr587) {
+          deliveryErrors.push(`SMTP 587: ${smtpErr587.message}`);
           console.warn(`[Email Service] Port 587 also failed: ${smtpErr587.message}`);
         }
       }
     }
+  } else {
+    deliveryErrors.push('SMTP: Credentials not configured');
   }
 
   // 4. Fallback for Local Development & Offline Sandboxes
@@ -272,7 +280,8 @@ export async function sendEmailOtp({ toEmail, otpCode, recipientName = 'User' })
     success: true,
     messageId: `dev-${Date.now()}`,
     provider: 'dev-console',
-    devOtp: otpCode
+    devOtp: otpCode,
+    deliveryErrors
   };
 }
 
