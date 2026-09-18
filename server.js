@@ -51,20 +51,25 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Temporary upload directory
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const CONVERTED_DIR = path.join(__dirname, 'converted');
-const COMPRESS_UPLOAD_DIR = path.join(__dirname, 'uploads', 'compress');
-const COMPRESS_OUTPUT_DIR = path.join(__dirname, 'converted', 'compress');
-const SPLIT_UPLOAD_DIR = path.join(__dirname, 'uploads', 'splits');
-const SPLIT_OUTPUT_DIR = path.join(__dirname, 'converted', 'splits');
+// Temporary upload directory (falls back to os.tmpdir() on serverless Vercel)
+const BASE_STORAGE_DIR = process.env.VERCEL ? os.tmpdir() : __dirname;
+const UPLOAD_DIR = path.join(BASE_STORAGE_DIR, 'uploads');
+const CONVERTED_DIR = path.join(BASE_STORAGE_DIR, 'converted');
+const COMPRESS_UPLOAD_DIR = path.join(BASE_STORAGE_DIR, 'uploads', 'compress');
+const COMPRESS_OUTPUT_DIR = path.join(BASE_STORAGE_DIR, 'converted', 'compress');
+const SPLIT_UPLOAD_DIR = path.join(BASE_STORAGE_DIR, 'uploads', 'splits');
+const SPLIT_OUTPUT_DIR = path.join(BASE_STORAGE_DIR, 'converted', 'splits');
 
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(CONVERTED_DIR)) fs.mkdirSync(CONVERTED_DIR, { recursive: true });
-if (!fs.existsSync(COMPRESS_UPLOAD_DIR)) fs.mkdirSync(COMPRESS_UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(COMPRESS_OUTPUT_DIR)) fs.mkdirSync(COMPRESS_OUTPUT_DIR, { recursive: true });
-if (!fs.existsSync(SPLIT_UPLOAD_DIR)) fs.mkdirSync(SPLIT_UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(SPLIT_OUTPUT_DIR)) fs.mkdirSync(SPLIT_OUTPUT_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  if (!fs.existsSync(CONVERTED_DIR)) fs.mkdirSync(CONVERTED_DIR, { recursive: true });
+  if (!fs.existsSync(COMPRESS_UPLOAD_DIR)) fs.mkdirSync(COMPRESS_UPLOAD_DIR, { recursive: true });
+  if (!fs.existsSync(COMPRESS_OUTPUT_DIR)) fs.mkdirSync(COMPRESS_OUTPUT_DIR, { recursive: true });
+  if (!fs.existsSync(SPLIT_UPLOAD_DIR)) fs.mkdirSync(SPLIT_UPLOAD_DIR, { recursive: true });
+  if (!fs.existsSync(SPLIT_OUTPUT_DIR)) fs.mkdirSync(SPLIT_OUTPUT_DIR, { recursive: true });
+} catch (e) {
+  console.warn('[Server] Storage directory initialization notice:', e.message);
+}
 
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
@@ -2403,7 +2408,7 @@ app.get('*', (req, res) => {
     res.sendFile(indexPath);
   } else {
     res.json({
-      name: 'ConvertPro Backend API',
+      name: 'Omnify Backend API',
       status: 'active',
       version: '1.0.0',
       routes: ['/api/upload', '/api/convert', '/api/ai/query', '/api/storage/stats']
@@ -2411,6 +2416,11 @@ app.get('*', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`ConvertPro Server active on http://localhost:${PORT}`);
-});
+// Start listener for local/standalone execution
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Omnify Server active on http://localhost:${PORT}`);
+  });
+}
+
+export default app;

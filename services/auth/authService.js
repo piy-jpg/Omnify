@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { normalizeEmail, sendEmailOtp } from '../email/emailService.js';
 
@@ -28,10 +29,15 @@ export function normalizePhoneNumber(rawPhone, defaultCountryCode = '+91') {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Database store file paths (persisted JSON store)
-const DATA_DIR = path.join(__dirname, '../../uploads/auth');
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+// Database store file paths (persisted JSON store, falls back to os.tmpdir() on serverless Vercel)
+const BASE_AUTH_DIR = process.env.VERCEL ? os.tmpdir() : path.join(__dirname, '../../uploads');
+const DATA_DIR = path.join(BASE_AUTH_DIR, 'auth');
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn('[AuthService] DATA_DIR init notice:', e.message);
 }
 
 const USERS_DB_FILE = path.join(DATA_DIR, 'users.json');
