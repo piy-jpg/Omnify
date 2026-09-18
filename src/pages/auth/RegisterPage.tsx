@@ -17,7 +17,9 @@ import {
   AlertCircle,
   Check,
   CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  Search,
+  Copy
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -581,11 +583,25 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 </button>
               </div>
 
-              {/* Spam Advisory & Instant Activation Code */}
-              <div className="p-3 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 text-center space-y-2">
-                <p className="text-[11px] text-indigo-900 dark:text-indigo-300 font-medium">
-                  📬 Code dispatched to <strong>{email}</strong>! Check your inbox or spam folder.
+              {/* Spam Advisory & Instant Search / Activation Code */}
+              <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 text-center space-y-2.5">
+                <p className="text-[11px] text-indigo-950 dark:text-indigo-200 font-semibold">
+                  📬 Code dispatched to <strong>{email}</strong>
                 </p>
+
+                {/* Email Search Helper Tip */}
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5 p-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-indigo-100 dark:border-indigo-900/60 text-[11px] text-slate-600 dark:text-slate-300 shadow-sm">
+                  <div className="flex items-center gap-1 shrink-0 font-medium">
+                    <Search className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Can't find it in Inbox? Search</span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 rounded-lg border border-indigo-200/70 dark:border-indigo-800/70">
+                    <code className="font-mono font-black text-indigo-700 dark:text-indigo-300 text-[11px] select-all">
+                      in:anywhere omnify
+                    </code>
+                  </div>
+                </div>
+
                 {devOtp && (
                   <button
                     type="button"
