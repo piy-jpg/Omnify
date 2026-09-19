@@ -172,15 +172,26 @@ export async function createAndRunSplitJob({
 
   videoSplitJobs.set(jobId, job);
 
-  // Execute in background
-  executeSplitJob(jobId, sourceFilePath).catch(err => {
-    console.error(`[Video Split Job ${jobId}] Failed:`, err);
-    const j = videoSplitJobs.get(jobId);
-    if (j) {
-      j.status = 'failed';
-      j.error = err.message || 'Video splitting process failed.';
+  // In Serverless runtimes (Vercel / AWS Lambda), background tasks freeze when response ends.
+  // We execute immediately to guarantee completion within the function invocation.
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NOW_REGION) {
+    try {
+      await executeSplitJob(jobId, sourceFilePath);
+    } catch (err) {
+      console.error(`[Video Split Job ${jobId}] Failed:`, err);
+      job.status = 'failed';
+      job.error = err.message || 'Video splitting process failed.';
     }
-  });
+  } else {
+    executeSplitJob(jobId, sourceFilePath).catch(err => {
+      console.error(`[Video Split Job ${jobId}] Failed:`, err);
+      const j = videoSplitJobs.get(jobId);
+      if (j) {
+        j.status = 'failed';
+        j.error = err.message || 'Video splitting process failed.';
+      }
+    });
+  }
 
   return job;
 }

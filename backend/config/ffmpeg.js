@@ -230,10 +230,11 @@ export function getFfprobePath() {
   return 'ffprobe';
 }
 
-import zlib from 'zlib';
+import { pipeline as streamPipeline } from 'stream/promises';
+import { Readable } from 'stream';
 
 /**
- * Download and extract binary using native fetch and zlib
+ * Download and extract binary using streamed fetch pipeline
  */
 async function downloadAndExtract(url, destPath) {
   const tempDest = `${destPath}.tmp_${Date.now()}`;
@@ -248,15 +249,10 @@ async function downloadAndExtract(url, destPath) {
     throw new Error(`Failed to download binary from ${url}: HTTP ${res.status} ${res.statusText}`);
   }
 
-  const arrayBuffer = await res.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  const fileStream = fs.createWriteStream(tempDest, { mode: 0o755 });
+  const nodeStream = Readable.fromWeb(res.body);
+  await streamPipeline(nodeStream, fileStream);
 
-  let binaryBuffer = buffer;
-  if (buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
-    binaryBuffer = zlib.gunzipSync(buffer);
-  }
-
-  fs.writeFileSync(tempDest, binaryBuffer, { mode: 0o755 });
   try {
     if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
   } catch (_) {}
@@ -275,7 +271,7 @@ export async function ensureFfmpegPath() {
   }
 
   const tempFfmpeg = path.join(os.tmpdir(), 'ffmpeg');
-  if (fs.existsSync(tempFfmpeg)) {
+  if (fs.existsSync(tempFfmpeg) && fs.statSync(tempFfmpeg).size > 1000000) {
     try {
       fs.chmodSync(tempFfmpeg, 0o755);
       cachedFfmpegPath = tempFfmpeg;
@@ -288,9 +284,7 @@ export async function ensureFfmpegPath() {
 
   const downloadUrls = [
     `https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-${platform}-${arch}`,
-    `https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-${platform}-${arch}.gz`,
-    `https://github.com/eugeneware/ffmpeg-static/releases/download/b5.2.0/ffmpeg-${platform}-${arch}`,
-    `https://github.com/eugeneware/ffmpeg-static/releases/download/b5.2.0/ffmpeg-${platform}-${arch}.gz`
+    `https://github.com/eugeneware/ffmpeg-static/releases/download/b5.2.0/ffmpeg-${platform}-${arch}`
   ];
 
   for (const dlUrl of downloadUrls) {
@@ -302,6 +296,12 @@ export async function ensureFfmpegPath() {
     } catch (err) {
       console.warn(`[FFmpeg Helper] Download attempt failed for ${dlUrl}:`, err.message);
     }
+  }
+
+  if (fs.existsSync(tempFfmpeg)) {
+    fs.chmodSync(tempFfmpeg, 0o755);
+    cachedFfmpegPath = tempFfmpeg;
+    return tempFfmpeg;
   }
 
   return getFfmpegPath();
