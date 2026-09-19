@@ -34,6 +34,9 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
 
   const maxParagraphs = Math.max(sourceParagraphs.length, targetParagraphs.length);
 
+  const [isSpeakingSource, setIsSpeakingSource] = useState(false);
+  const [isSpeakingTarget, setIsSpeakingTarget] = useState(false);
+
   const handleCopySource = () => {
     navigator.clipboard.writeText(sourceText);
     setSourceCopied(true);
@@ -44,6 +47,38 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
     navigator.clipboard.writeText(translatedText);
     setTargetCopied(true);
     setTimeout(() => setTargetCopied(false), 2000);
+  };
+
+  const handleSpeakSource = () => {
+    if (!sourceText.trim() || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (isSpeakingSource) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingSource(false);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    setIsSpeakingTarget(false);
+    const utterance = new SpeechSynthesisUtterance(sourceText);
+    utterance.onend = () => setIsSpeakingSource(false);
+    utterance.onerror = () => setIsSpeakingSource(false);
+    setIsSpeakingSource(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleSpeakTarget = () => {
+    if (!translatedText.trim() || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (isSpeakingTarget) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingTarget(false);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    setIsSpeakingSource(false);
+    const utterance = new SpeechSynthesisUtterance(translatedText);
+    utterance.onend = () => setIsSpeakingTarget(false);
+    utterance.onerror = () => setIsSpeakingTarget(false);
+    setIsSpeakingTarget(true);
+    window.speechSynthesis.speak(utterance);
   };
 
   return (
@@ -62,6 +97,20 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
               <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
                 Original ({sourceLanguageName})
               </span>
+              <button
+                type="button"
+                onClick={handleSpeakSource}
+                disabled={!sourceText.trim()}
+                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer disabled:opacity-40 ${
+                  isSpeakingSource
+                    ? 'bg-purple-600 text-white animate-pulse'
+                    : 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100'
+                }`}
+                title="Listen to original text"
+              >
+                <Volume2 className="w-3.5 h-3.5" />
+                <span>{isSpeakingSource ? 'Stop' : 'Listen'}</span>
+              </button>
             </div>
 
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
@@ -70,13 +119,14 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
               <span>{sourceText.length} chars</span>
               <button
                 onClick={handleCopySource}
-                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 transition-colors ml-1"
+                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 transition-colors ml-1 cursor-pointer"
                 title="Copy source text"
               >
                 {sourceCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
             </div>
           </div>
+
 
           {/* Content Area */}
           <div className="p-4 sm:p-5 flex-1 max-h-[500px] overflow-y-auto space-y-3 font-sans text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
@@ -108,6 +158,20 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
               <span className="text-xs font-extrabold uppercase tracking-wider text-brand-700 dark:text-brand-300">
                 Translation ({targetLanguageName})
               </span>
+              <button
+                type="button"
+                onClick={handleSpeakTarget}
+                disabled={!translatedText.trim()}
+                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer disabled:opacity-40 ${
+                  isSpeakingTarget
+                    ? 'bg-purple-600 text-white animate-pulse'
+                    : 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100'
+                }`}
+                title="Listen to translated text"
+              >
+                <Volume2 className="w-3.5 h-3.5" />
+                <span>{isSpeakingTarget ? 'Stop' : 'Listen'}</span>
+              </button>
             </div>
 
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
@@ -116,7 +180,7 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
               <span>{translatedText.length} chars</span>
               <button
                 onClick={handleCopyTarget}
-                className="p-1.5 rounded-lg hover:bg-brand-100 dark:hover:bg-brand-950 text-brand-600 dark:text-brand-400 transition-colors ml-1"
+                className="p-1.5 rounded-lg hover:bg-brand-100 dark:hover:bg-brand-950 text-brand-600 dark:text-brand-400 transition-colors ml-1 cursor-pointer"
                 title="Copy translated text"
               >
                 {targetCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
