@@ -29,18 +29,31 @@ function unpackGzBinary(binaryName, gzFileName) {
     const candidateGzPaths = [
       path.resolve(process.cwd(), 'bin', gzFileName),
       path.resolve('/var/task/bin', gzFileName),
+      path.resolve('/var/task/api/bin', gzFileName),
       path.resolve(__dirname, '../../bin', gzFileName),
-      path.resolve(__dirname, '../../../bin', gzFileName)
+      path.resolve(__dirname, '../../../bin', gzFileName),
+      path.resolve(__dirname, '../bin', gzFileName),
+      path.resolve(__dirname, './bin', gzFileName)
     ];
 
+    let foundGz = null;
     for (const gzPath of candidateGzPaths) {
       if (fs.existsSync(gzPath)) {
-        const gzBuf = fs.readFileSync(gzPath);
-        const unzipped = zlib.gunzipSync(gzBuf);
-        fs.writeFileSync(destPath, unzipped);
-        fs.chmodSync(destPath, 0o755);
-        return destPath;
+        foundGz = gzPath;
+        break;
       }
+    }
+
+    if (!foundGz) {
+      foundGz = findBinaryInDirectory(process.cwd(), gzFileName, 5) || findBinaryInDirectory('/var/task', gzFileName, 5);
+    }
+
+    if (foundGz) {
+      const gzBuf = fs.readFileSync(foundGz);
+      const unzipped = zlib.gunzipSync(gzBuf);
+      fs.writeFileSync(destPath, unzipped);
+      fs.chmodSync(destPath, 0o755);
+      return destPath;
     }
   } catch (err) {
     console.warn(`[FFmpeg Helper] Failed unpacking ${gzFileName}:`, err.message);
