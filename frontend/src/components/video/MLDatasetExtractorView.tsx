@@ -107,27 +107,13 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
     }
   }, [videoFile]);
 
-  const [pendingAutoExtract, setPendingAutoExtract] = useState(false);
-  const resultsSectionRef = useRef<HTMLDivElement>(null);
-
-  // Auto-start extraction once demo video metadata loads
-  useEffect(() => {
-    if (pendingAutoExtract && videoRef.current && videoFile && videoSrc) {
-      setPendingAutoExtract(false);
-      handleStartExtraction();
-    }
-  }, [pendingAutoExtract, videoFile, videoSrc]);
-
-  // Load Synthetic Demo Video & optionally trigger extraction
-  const handleLoadDemo = async (autoExtract = false) => {
+  // Load Synthetic Demo Video
+  const handleLoadDemo = async () => {
     setIsLoadingDemo(true);
     try {
       const demoBlob = await generateDemoVideoBlob();
       const demoFile = new File([demoBlob], 'Sample_AI_Dataset_Video.webm', { type: 'video/webm' });
       setVideoFile(demoFile);
-      if (autoExtract) {
-        setPendingAutoExtract(true);
-      }
     } catch (e) {
       console.error('Demo video generation failed', e);
     } finally {
@@ -155,25 +141,57 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
       setVideoDuration(videoRef.current.duration || 10);
       setVideoWidth(videoRef.current.videoWidth || 1920);
       setVideoHeight(videoRef.current.videoHeight || 1080);
-      if (pendingAutoExtract) {
-        setPendingAutoExtract(false);
-        handleStartExtraction();
-      }
     }
   };
 
   // Start Extraction
   const handleStartExtraction = async () => {
-    if (!videoRef.current || !videoFile) return;
+    let currentVideo = videoFile;
+    if (!currentVideo) {
+      setIsLoadingDemo(true);
+      try {
+        const demoBlob = await generateDemoVideoBlob();
+        currentVideo = new File([demoBlob], 'Sample_AI_Dataset_Video.webm', { type: 'video/webm' });
+        setVideoFile(currentVideo);
+      } catch (e) {
+        console.error('Demo video generation failed', e);
+        setIsLoadingDemo(false);
+        return;
+      } finally {
+        setIsLoadingDemo(false);
+      }
+    }
 
     setIsExtracting(true);
     cancelRef.current = false;
     setFrames([]);
 
     try {
+      let vEl = videoRef.current;
+      if (!vEl) {
+        vEl = document.createElement('video');
+        vEl.muted = true;
+        vEl.playsInline = true;
+        vEl.preload = 'auto';
+      }
+
+      if (!vEl.src || vEl.src.length === 0) {
+        const url = URL.createObjectURL(currentVideo);
+        vEl.src = url;
+      }
+
+      if (vEl.readyState < 2) {
+        await new Promise<void>((resolve) => {
+          vEl!.onloadeddata = () => resolve();
+          vEl!.onloadedmetadata = () => resolve();
+          vEl!.oncanplay = () => resolve();
+          setTimeout(resolve, 1500);
+        });
+      }
+
       const extracted = await extractMLDatasetFrames(
-        videoRef.current,
-        videoFile,
+        vEl,
+        currentVideo,
         config,
         (p) => setProgress(p),
         () => cancelRef.current
@@ -182,9 +200,6 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
       setFrames(extracted);
       if (extracted.length > 0) {
         confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
-        setTimeout(() => {
-          resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
       }
     } catch (err) {
       console.error('ML Frame Extraction error:', err);
@@ -248,7 +263,7 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
-            onClick={() => handleLoadDemo(false)}
+            onClick={handleLoadDemo}
             disabled={isLoadingDemo || isExtracting}
             className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 hover:bg-purple-50 dark:hover:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 transition-all shadow-xs flex items-center gap-1.5"
           >
@@ -273,7 +288,7 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
         </div>
       </div>
 
-      {/* 2. HIDDEN VIDEO PLAYER FOR CANVAS DECODING */}
+      {/* 2. OFF-SCREEN VIDEO PLAYER FOR HARDWARE CANVAS DECODING */}
       {videoSrc && (
         <video
           ref={videoRef}
@@ -281,7 +296,16 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
           onLoadedMetadata={handleLoadedMetadata}
           muted
           playsInline
-          className="hidden"
+          preload="auto"
+          style={{
+            position: 'fixed',
+            top: '-9999px',
+            left: '-9999px',
+            width: '320px',
+            height: '240px',
+            opacity: 0.01,
+            pointerEvents: 'none'
+          }}
         />
       )}
 
@@ -481,9 +505,9 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
 
             {/* Trigger Button */}
             <button
-              onClick={() => (videoFile ? handleStartExtraction() : handleLoadDemo(true))}
+              onClick={handleStartExtraction}
               disabled={isExtracting || isLoadingDemo}
-              className="w-full py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
             >
               {isExtracting ? (
                 <>
@@ -498,7 +522,7 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
               ) : !videoFile ? (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  <span>Load Sample Video & Extract Dataset</span>
+                  <span>Load Sample Video & Extract ({config.preset.toUpperCase()})</span>
                 </>
               ) : (
                 <>
@@ -540,7 +564,7 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
 
       {/* 6. EXTRACTED DATASET GALLERY & EXPORT SECTION */}
       {frames.length > 0 && (
-        <div ref={resultsSectionRef} className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-5">
+        <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-5">
           
           {/* Gallery Header & Filter Tabs */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
