@@ -6,6 +6,8 @@ import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -95,12 +97,14 @@ export function getFfmpegPath() {
     }
   }
 
-  // 2. Resolve ffmpeg-static and @ffmpeg-installer import
+  // 2. Resolve @ffmpeg-installer and ffmpeg-static import
+  const installerPath = ffmpegInstaller?.path || ffmpegInstaller?.default?.path || null;
   const staticPath = typeof ffmpegStatic === 'string'
     ? ffmpegStatic
     : (ffmpegStatic?.default || ffmpegStatic?.path || null);
 
   const candidatePaths = [
+    installerPath,
     staticPath,
     path.join(os.tmpdir(), 'ffmpeg'),
     '/tmp/ffmpeg',
@@ -171,24 +175,27 @@ export function getFfprobePath() {
     }
   }
 
-  // 2. Resolve ffprobe-static and @ffprobe-installer import
+  // 2. Resolve @ffprobe-installer and ffprobe-static import
+  const installerPath = ffprobeInstaller?.path || ffprobeInstaller?.default?.path || null;
   const staticPath = typeof ffprobeStatic === 'string'
     ? ffprobeStatic
     : (ffprobeStatic?.path || ffprobeStatic?.default?.path || ffprobeStatic?.default || null);
 
   const candidatePaths = [
+    installerPath,
     staticPath,
     path.join(os.tmpdir(), 'ffprobe'),
     '/tmp/ffprobe',
+    path.resolve(process.cwd(), 'node_modules/@ffprobe-installer/linux-x64/ffprobe'),
+    path.resolve(process.cwd(), 'node_modules/@ffprobe-installer/darwin-arm64/ffprobe'),
     path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
     path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/linux/arm64/ffprobe'),
     path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/darwin/arm64/ffprobe'),
     path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/darwin/x64/ffprobe'),
     path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/win32/x64/ffprobe.exe'),
+    path.resolve('/var/task/node_modules/@ffprobe-installer/linux-x64/ffprobe'),
     path.resolve('/var/task/node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
     path.resolve('/var/task/node_modules/ffprobe-static/bin/linux/arm64/ffprobe'),
-    path.resolve(process.cwd(), 'node_modules/@ffprobe-installer/linux-x64/ffprobe'),
-    path.resolve('/var/task/node_modules/@ffprobe-installer/linux-x64/ffprobe'),
     path.resolve(__dirname, '../../node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
     path.resolve(__dirname, '../../node_modules/ffprobe-static/bin/darwin/arm64/ffprobe'),
     path.resolve(__dirname, '../../../node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
