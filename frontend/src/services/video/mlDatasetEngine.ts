@@ -177,6 +177,18 @@ export async function extractMLDatasetFrames(
   onProgress?: (p: MLDatasetProgress) => void,
   shouldCancel?: () => boolean
 ): Promise<MLDtsFrame[]> {
+  // Ensure video metadata is loaded before extracting
+  if (videoElement.readyState < 1) {
+    await new Promise<void>((resolve) => {
+      const onLoaded = () => {
+        videoElement.removeEventListener('loadedmetadata', onLoaded);
+        resolve();
+      };
+      videoElement.addEventListener('loadedmetadata', onLoaded, { once: true });
+      setTimeout(resolve, 2000);
+    });
+  }
+
   const duration = videoElement.duration || 10;
   const videoW = videoElement.videoWidth || 1920;
   const videoH = videoElement.videoHeight || 1080;
@@ -422,14 +434,22 @@ total_samples: ${frames.length}
     const imgTrain = zip.folder('images/train');
     const imgVal = zip.folder('images/val');
     const imgTest = zip.folder('images/test');
-    zip.folder('labels/train');
-    zip.folder('labels/val');
-    zip.folder('labels/test');
+    const lblTrain = zip.folder('labels/train');
+    const lblVal = zip.folder('labels/val');
+    const lblTest = zip.folder('labels/test');
 
     for (const f of frames) {
-      if (f.splitGroup === 'train') imgTrain?.file(f.fileName, f.blob);
-      else if (f.splitGroup === 'val') imgVal?.file(f.fileName, f.blob);
-      else imgTest?.file(f.fileName, f.blob);
+      const txtName = f.fileName.replace(/\.[^/.]+$/, '.txt');
+      if (f.splitGroup === 'train') {
+        imgTrain?.file(f.fileName, f.blob);
+        lblTrain?.file(txtName, '');
+      } else if (f.splitGroup === 'val') {
+        imgVal?.file(f.fileName, f.blob);
+        lblVal?.file(txtName, '');
+      } else {
+        imgTest?.file(f.fileName, f.blob);
+        lblTest?.file(txtName, '');
+      }
     }
   } 
   // 2. LoRA / Diffusion Structure
