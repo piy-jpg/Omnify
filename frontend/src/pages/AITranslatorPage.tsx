@@ -886,7 +886,7 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
             <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden">
               <div className="flex items-center justify-between p-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-xs font-bold text-slate-500">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-slate-700 dark:text-slate-300">Source ({sourceLang.name})</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-300">Source Text ({sourceLang.name})</span>
                   
                   {/* Header Listen Button */}
                   <button
@@ -1014,7 +1014,7 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                 <div className="flex items-center gap-1.5">
                   <span className="flex items-center gap-1 font-bold text-purple-800 dark:text-purple-200">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Target ({targetLang.name})
+                    Translated Result ({targetLang.name})
                   </span>
 
                   {/* Header Listen Button */}
