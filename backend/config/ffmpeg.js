@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import zlib from 'zlib';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { exec, spawn } from 'child_process';
@@ -13,6 +14,39 @@ const __dirname = path.dirname(__filename);
 
 let cachedFfmpegPath = null;
 let cachedFfprobePath = null;
+
+/**
+ * Unpack pre-bundled gzipped static binary to /tmp
+ */
+function unpackGzBinary(binaryName, gzFileName) {
+  try {
+    const destPath = path.join(os.tmpdir(), binaryName);
+    if (fs.existsSync(destPath) && fs.statSync(destPath).size > 10000000) {
+      try { fs.chmodSync(destPath, 0o755); } catch (_) {}
+      return destPath;
+    }
+
+    const candidateGzPaths = [
+      path.resolve(process.cwd(), 'bin', gzFileName),
+      path.resolve('/var/task/bin', gzFileName),
+      path.resolve(__dirname, '../../bin', gzFileName),
+      path.resolve(__dirname, '../../../bin', gzFileName)
+    ];
+
+    for (const gzPath of candidateGzPaths) {
+      if (fs.existsSync(gzPath)) {
+        const gzBuf = fs.readFileSync(gzPath);
+        const unzipped = zlib.gunzipSync(gzBuf);
+        fs.writeFileSync(destPath, unzipped);
+        fs.chmodSync(destPath, 0o755);
+        return destPath;
+      }
+    }
+  } catch (err) {
+    console.warn(`[FFmpeg Helper] Failed unpacking ${gzFileName}:`, err.message);
+  }
+  return null;
+}
 
 /**
  * Safely resolve a package relative file
@@ -107,7 +141,14 @@ export function getFfmpegPath() {
     }
   }
 
-  // 2. Package-resolved binaries (statically traced by Vercel NFT bundler)
+  // 2. Unpack bundled gzip binary if on Linux/Vercel
+  const unpackedGz = unpackGzBinary('ffmpeg', 'ffmpeg-linux-x64.gz');
+  if (unpackedGz) {
+    cachedFfmpegPath = unpackedGz;
+    return cachedFfmpegPath;
+  }
+
+  // 3. Package-resolved binaries (statically traced by Vercel NFT bundler)
   const pkgCandidates = [
     resolvePkgBinary('@ffmpeg-installer/linux-x64', 'ffmpeg'),
     resolvePkgBinary('@ffmpeg-installer/darwin-arm64', 'ffmpeg'),
@@ -196,7 +237,14 @@ export function getFfprobePath() {
     }
   }
 
-  // 2. Package-resolved binaries (statically traced by Vercel NFT bundler)
+  // 2. Unpack bundled gzip binary if on Linux/Vercel
+  const unpackedGz = unpackGzBinary('ffprobe', 'ffprobe-linux-x64.gz');
+  if (unpackedGz) {
+    cachedFfprobePath = unpackedGz;
+    return cachedFfprobePath;
+  }
+
+  // 3. Package-resolved binaries (statically traced by Vercel NFT bundler)
   const pkgCandidates = [
     resolvePkgBinary('@ffprobe-installer/linux-x64', 'ffprobe'),
     resolvePkgBinary('@ffprobe-installer/darwin-arm64', 'ffprobe'),
