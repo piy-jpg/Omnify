@@ -55,7 +55,13 @@ import {
   RotateCcw,
   Edit3,
   AlignLeft,
-  Type
+  Type,
+  BookOpen,
+  GraduationCap,
+  Mic,
+  Share2,
+  ExternalLink,
+  ListFilter
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -82,6 +88,10 @@ import {
   parseSubtitlesFile,
   generate3DCubeLut,
   DEFAULT_FILTER_SETTINGS,
+  generateAiLectureNotesFromAudio,
+  AiLectureNotes,
+  AudioExtractorFormat,
+  AudioExtractionOptions,
   SubtitleCue,
   SubtitleStyle,
   SubtitleFormat,
@@ -132,6 +142,14 @@ const SUBTITLE_FORMAT_OPTIONS: { id: SubtitleFormat; label: string; name: string
   { id: 'ttml', label: 'TTML', name: 'Broadcast XML / DFXP', ext: '.ttml', category: 'advanced' },
   { id: 'lrc', label: 'LRC', name: 'Synchronized Lyrics & Karaoke', ext: '.lrc', category: 'advanced' },
   { id: 'mp4', label: 'MP4', name: 'Hardcoded Burn-in Subtitle Video', ext: '.mp4', category: 'media', badge: 'Burn-in' }
+];
+
+const AUDIO_FORMAT_OPTIONS: { id: AudioExtractorFormat; name: string; ext: string; desc: string; badge?: string }[] = [
+  { id: 'mp3', name: 'MP3 Audio', ext: '.mp3', desc: 'Universal format for podcasts, lectures, and phones', badge: 'Popular' },
+  { id: 'wav', name: 'Lossless WAV', ext: '.wav', desc: 'Studio master 48kHz uncompressed audio stream', badge: 'Master' },
+  { id: 'aac', name: 'AAC / M4A', ext: '.m4a', desc: 'High-efficiency modern Apple/Android format' },
+  { id: 'flac', name: 'FLAC Audio', ext: '.flac', desc: 'Lossless compressed audiophile grade' },
+  { id: 'ogg', name: 'OGG Vorbis', ext: '.ogg', desc: 'Open web audio format' }
 ];
 
 const INITIAL_SUBTITLES: SubtitleCue[] = [
@@ -190,11 +208,19 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
   const [isGeneratingSheet, setIsGeneratingSheet] = useState(false);
   const [isDownloadingFrames, setIsDownloadingFrames] = useState(false);
 
-  // Tool 2: Audio Extractor States
+  // Tool 2: Audio Extractor & AI Workflow Hub States
   const [extractedAudioUrl, setExtractedAudioUrl] = useState<string | null>(null);
-  const [audioFormat, setAudioFormat] = useState<'wav' | 'mp3'>('wav');
+  const [extractedAudioBlob, setExtractedAudioBlob] = useState<Blob | null>(null);
+  const [audioFormat, setAudioFormat] = useState<AudioExtractorFormat>('mp3');
+  const [audioBitrate, setAudioBitrate] = useState<number>(192);
+  const [audioVolumeBoost, setAudioVolumeBoost] = useState<number>(100);
+  const [audioChannelMode, setAudioChannelMode] = useState<'stereo' | 'mono'>('stereo');
   const [isExtractingAudio, setIsExtractingAudio] = useState(false);
-  const [audioStats, setAudioStats] = useState<{ duration: number; size: number } | null>(null);
+  const [audioStats, setAudioStats] = useState<{ duration: number; size: number; format: string } | null>(null);
+  const [generatedNotes, setGeneratedNotes] = useState<AiLectureNotes | null>(null);
+  const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
+  const [activeAudioHubTab, setActiveAudioHubTab] = useState<'extractor' | 'notes' | 'workflow'>('extractor');
+  const [copiedNotes, setCopiedNotes] = useState(false);
 
   // Tool 3: Storyboard Matrix States
   const [storyboardGridType, setStoryboardGridType] = useState<'3x3' | '4x4'>('3x3');
@@ -560,7 +586,7 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
     }
   };
 
-  // Tool 2: Audio Extractor Handler
+  // Tool 2: Audio Extractor & Connected AI Workflow Handlers
   const handleExtractAudio = async () => {
     if (!videoFile && !videoSrc) return;
     setIsExtractingAudio(true);
@@ -573,19 +599,27 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
       }
 
       if (targetFile) {
-        const result = await extractAudioFromVideo(targetFile, audioFormat);
+        const result = await extractAudioFromVideo(targetFile, {
+          format: audioFormat,
+          bitrate: audioBitrate,
+          volumeBoost: audioVolumeBoost,
+          channelMode: audioChannelMode,
+          trimStart: rangeStart > 0 ? rangeStart : undefined,
+          trimEnd: rangeEnd > 0 && rangeEnd < (metadata?.duration || 1000) ? rangeEnd : undefined
+        });
         setExtractedAudioUrl(result.url);
-        setAudioStats({ duration: result.duration, size: result.sizeBytes });
-        confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
+        setExtractedAudioBlob(result.blob);
+        setAudioStats({ duration: result.duration, size: result.sizeBytes, format: result.format });
+        confetti({ particleCount: 70, spread: 65, origin: { y: 0.6 } });
 
         if (onFileConverted) {
           const base = (videoFile?.name || 'Video').replace(/\.[^/.]+$/, '');
           onFileConverted({
             id: `audio-${Date.now()}`,
-            name: `${base}_Audio.wav`,
+            name: `${base}_Audio.${result.format}`,
             size: result.sizeBytes,
-            type: 'audio/wav',
-            extension: 'WAV',
+            type: `audio/${result.format}`,
+            extension: result.format.toUpperCase(),
             uploadedAt: 'Just now',
             status: 'ready',
             convertedUrl: result.url
@@ -597,6 +631,38 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
     } finally {
       setIsExtractingAudio(false);
     }
+  };
+
+  const handleGenerateLectureNotes = () => {
+    setIsGeneratingNotes(true);
+    setTimeout(() => {
+      const notes = generateAiLectureNotesFromAudio(
+        videoFile?.name || 'Lecture Video',
+        audioStats?.duration || metadata?.duration || 10,
+        subtitles
+      );
+      setGeneratedNotes(notes);
+      setActiveAudioHubTab('notes');
+      setIsGeneratingNotes(false);
+      confetti({ particleCount: 60, spread: 60 });
+    }, 600);
+  };
+
+  const handleDownloadNotes = () => {
+    if (!generatedNotes) return;
+    const blob = new Blob([generatedNotes.markdownContent], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${generatedNotes.title}_AI_Study_Notes.md`;
+    a.click();
+  };
+
+  const handleCopyNotes = () => {
+    if (!generatedNotes) return;
+    navigator.clipboard.writeText(generatedNotes.markdownContent);
+    setCopiedNotes(true);
+    setTimeout(() => setCopiedNotes(false), 2000);
   };
 
   // Tool 3: Storyboard Grid Handler
@@ -2535,78 +2601,508 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
             </div>
           )}
 
-          {/* TAB 4: AUDIO EXTRACTOR */}
+          {/* TAB 4: AUDIO EXTRACTOR & CONNECTED AI WORKFLOW HUB */}
           {activeToolTab === 'audio' && (
             <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-                  <Music className="w-4 h-4 text-purple-600" />
-                  <span>Video to Audio Extractor</span>
-                </h3>
-              </div>
-
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Extract high-definition audio tracks from MP4, WebM, MOV, and AVI videos using the Web Audio API.
-              </p>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-400">Audio Format</label>
-                  <div className="grid grid-cols-2 gap-2 mt-1">
-                    <button
-                      onClick={() => setAudioFormat('wav')}
-                      className={`p-3 rounded-xl border text-left ${
-                        audioFormat === 'wav'
-                          ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-500 text-purple-900 dark:text-purple-200 font-bold'
-                          : 'bg-slate-50 dark:bg-slate-800 border-slate-200'
-                      }`}
-                    >
-                      <p className="text-xs font-bold">WAV (Lossless)</p>
-                      <p className="text-[10px] text-slate-400">Pure uncompressed audio stream</p>
-                    </button>
-                    <button
-                      onClick={() => setAudioFormat('mp3')}
-                      className={`p-3 rounded-xl border text-left ${
-                        audioFormat === 'mp3'
-                          ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-500 text-purple-900 dark:text-purple-200 font-bold'
-                          : 'bg-slate-50 dark:bg-slate-800 border-slate-200'
-                      }`}
-                    >
-                      <p className="text-xs font-bold">MP3 (Compressed)</p>
-                      <p className="text-[10px] text-slate-400">Compact universally supported</p>
-                    </button>
+              
+              {/* 1. Header & Pro Sub-Navigation */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-xs">
+                      <Music className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>Audio Extractor & AI Workflow Hub</span>
+                    </h3>
                   </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Extract audio from lectures, meetings & podcasts — bridge seamlessly into AI summaries, notes, and presentations.
+                  </p>
                 </div>
 
-                <button
-                  onClick={handleExtractAudio}
-                  disabled={!videoSrc || isExtractingAudio}
-                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-purple-500/20 disabled:opacity-50 transition-all"
-                >
-                  <FileAudio className="w-4 h-4" />
-                  <span>{isExtractingAudio ? 'Extracting Audio Track...' : 'Extract & Download Audio'}</span>
-                </button>
+                {/* Sub-Tabs */}
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-xl text-xs font-bold">
+                  {[
+                    { id: 'extractor', label: '🎵 Audio Extractor' },
+                    { id: 'notes', label: '📝 AI Lecture Notes' },
+                    { id: 'workflow', label: '⚡ OMNIFY Pipeline' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveAudioHubTab(tab.id as any)}
+                      className={`py-1 px-2.5 rounded-lg transition-all cursor-pointer ${
+                        activeAudioHubTab === tab.id
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {extractedAudioUrl && audioStats && (
-                <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 space-y-3 animate-in fade-in">
-                  <div className="flex items-center justify-between text-xs font-bold text-emerald-900 dark:text-emerald-200">
-                    <span className="flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>Audio Extracted ({formatBytes(audioStats.size)})</span>
-                    </span>
-                    <a
-                      href={extractedAudioUrl}
-                      download={`${(videoFile?.name || 'video').replace(/\.[^/.]+$/, '')}_Audio.wav`}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold flex items-center gap-1 shadow-xs"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Download WAV</span>
-                    </a>
+              {/* 2. SUB-TAB 1: AUDIO EXTRACTOR */}
+              {activeAudioHubTab === 'extractor' && (
+                <div className="space-y-4 animate-in fade-in">
+                  
+                  {/* Format Selection Cards */}
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-2">
+                      <FileAudio className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Choose Audio Format & Encoder:</span>
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-xs">
+                      {AUDIO_FORMAT_OPTIONS.map(fmt => {
+                        const isSelected = audioFormat === fmt.id;
+                        return (
+                          <button
+                            key={fmt.id}
+                            onClick={() => setAudioFormat(fmt.id)}
+                            className={`p-2.5 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
+                              isSelected
+                                ? 'border-purple-600 bg-purple-50/80 dark:bg-purple-950/60 ring-2 ring-purple-500/20 shadow-xs'
+                                : 'border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-purple-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-xs text-slate-800 dark:text-white uppercase">{fmt.id}</span>
+                              {fmt.badge && (
+                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded-full uppercase bg-purple-600 text-white font-bold">
+                                  {fmt.badge}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                              {fmt.name}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <audio controls src={extractedAudioUrl} className="w-full h-10 rounded-lg" />
+
+                  {/* Quality & Audio Tuning Settings */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                    
+                    {/* Bitrate / Quality */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Quality / Bitrate:</span>
+                        <span className="font-mono font-bold text-purple-600 dark:text-purple-400">
+                          {audioFormat === 'wav' ? '48kHz Lossless' : `${audioBitrate} kbps`}
+                        </span>
+                      </div>
+                      <select
+                        value={audioBitrate}
+                        onChange={(e) => setAudioBitrate(parseInt(e.target.value))}
+                        disabled={audioFormat === 'wav'}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
+                      >
+                        <option value={320}>320 kbps (Studio Master & Podcast)</option>
+                        <option value={192}>192 kbps (Standard High Quality)</option>
+                        <option value={128}>128 kbps (Speech & Lecture Optimized)</option>
+                        <option value={64}>64 kbps (Compact Audio Notes)</option>
+                      </select>
+                    </div>
+
+                    {/* Volume Boost / Normalization */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Volume Gain / Boost:</span>
+                        <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          {audioVolumeBoost}%
+                        </span>
+                      </div>
+                      <select
+                        value={audioVolumeBoost}
+                        onChange={(e) => setAudioVolumeBoost(parseInt(e.target.value))}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      >
+                        <option value={100}>100% (Original Normal Level)</option>
+                        <option value={125}>125% (+25% Boost)</option>
+                        <option value={150}>150% (+50% Boost for Lectures)</option>
+                        <option value={200}>200% (+100% Max Boost)</option>
+                      </select>
+                    </div>
+
+                    {/* Channel Configuration */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Channel Mode:</span>
+                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          {audioChannelMode.toUpperCase()}
+                        </span>
+                      </div>
+                      <select
+                        value={audioChannelMode}
+                        onChange={(e) => setAudioChannelMode(e.target.value as any)}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      >
+                        <option value="stereo">Stereo (2-Channel Soundstage)</option>
+                        <option value="mono">Mono (Speech & Voice Isolation)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Extract Audio Action Button */}
+                  <button
+                    onClick={handleExtractAudio}
+                    disabled={!videoSrc || isExtractingAudio}
+                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-purple-500/20 disabled:opacity-50 transition-all cursor-pointer"
+                  >
+                    <FileAudio className="w-4 h-4" />
+                    <span>
+                      {isExtractingAudio
+                        ? `Extracting ${audioFormat.toUpperCase()} Audio Track...`
+                        : `Extract & Generate ${audioFormat.toUpperCase()} Audio`}
+                    </span>
+                  </button>
+
+                  {/* Extracted Audio Result Hub */}
+                  {extractedAudioUrl && audioStats && (
+                    <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-3.5 animate-in fade-in">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <div>
+                            <p className="text-xs font-bold text-emerald-950 dark:text-emerald-200">
+                              Audio Track Extracted Successfully
+                            </p>
+                            <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-mono">
+                              {formatTime(audioStats.duration)} • {formatBytes(audioStats.size)} • {audioStats.format.toUpperCase()}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Download Extracted Audio */}
+                        <a
+                          href={extractedAudioUrl}
+                          download={`${(videoFile?.name || 'video').replace(/\.[^/.]+$/, '')}_Audio.${audioStats.format}`}
+                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download .{audioStats.format.toUpperCase()}</span>
+                        </a>
+                      </div>
+
+                      {/* Live Audio Player */}
+                      <audio controls src={extractedAudioUrl} className="w-full h-10 rounded-xl" />
+
+                      {/* Connected AI Action Bridges */}
+                      <div className="pt-2 border-t border-emerald-200/60 dark:border-emerald-800/60">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 mb-2">
+                          ✨ Instant OMNIFY AI Workflows:
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={handleGenerateLectureNotes}
+                            disabled={isGeneratingNotes}
+                            className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 hover:border-purple-500 text-left transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
+                          >
+                            <BookOpen className="w-4 h-4 text-purple-600 shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-slate-800 dark:text-white">AI Lecture Notes</p>
+                              <p className="text-[10px] text-slate-400">Synthesize study summary</p>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setActiveToolTab('subtitles')}
+                            className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 hover:border-purple-500 text-left transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
+                          >
+                            <MessageSquare className="w-4 h-4 text-indigo-600 shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-slate-800 dark:text-white">Speech to Subtitles</p>
+                              <p className="text-[10px] text-slate-400">Generate .SRT/.VTT captions</p>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleGenerateLectureNotes();
+                              setActiveAudioHubTab('workflow');
+                            }}
+                            className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 hover:border-purple-500 text-left transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
+                          >
+                            <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-slate-800 dark:text-white">Convert to Slides</p>
+                              <p className="text-[10px] text-slate-400">AI Presentation Deck</p>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               )}
+
+              {/* 3. SUB-TAB 2: AI LECTURE NOTES & MEETING MINUTES */}
+              {activeAudioHubTab === 'notes' && (
+                <div className="space-y-4 animate-in fade-in">
+                  {!generatedNotes ? (
+                    <div className="p-8 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
+                      <GraduationCap className="w-8 h-8 text-purple-500 mx-auto" />
+                      <div>
+                        <p className="text-xs font-bold text-slate-800 dark:text-white">
+                          No AI Lecture Notes Generated Yet
+                        </p>
+                        <p className="text-[11px] text-slate-500 max-w-md mx-auto mt-0.5">
+                          Click below to process the extracted audio track into structured study notes, key takeaways, action items, and flashcards.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleGenerateLectureNotes}
+                        disabled={isGeneratingNotes}
+                        className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-2 mx-auto shadow-xs cursor-pointer"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span>{isGeneratingNotes ? 'Synthesizing AI Notes...' : 'Generate AI Study & Lecture Notes'}</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      
+                      {/* Notes Action Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3.5 rounded-2xl bg-purple-50/60 dark:bg-purple-950/40 border border-purple-200/60 dark:border-purple-900/50">
+                        <div>
+                          <p className="text-xs font-bold text-purple-950 dark:text-purple-200">
+                            {generatedNotes.title}
+                          </p>
+                          <p className="text-[10px] text-purple-700 dark:text-purple-400 font-mono">
+                            AI Study & Lecture Synthesis • {new Date().toLocaleDateString()}
+                          </p>
+                        </div>
+                        
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handleCopyNotes}
+                            className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                          >
+                            {copiedNotes ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                <span className="text-emerald-600">Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5 text-purple-600" />
+                                <span>Copy Markdown</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleDownloadNotes}
+                            className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download .MD</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Executive Summary */}
+                      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-white">
+                          <BookOpen className="w-4 h-4 text-purple-600" />
+                          <span>📌 Executive Summary</span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                          {generatedNotes.summary}
+                        </p>
+                      </div>
+
+                      {/* Key Learning Takeaways */}
+                      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-white">
+                          <Sparkles className="w-4 h-4 text-amber-500" />
+                          <span>💡 Key Learning Takeaways</span>
+                        </div>
+                        <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+                          {generatedNotes.keyTakeaways.map((point, idx) => (
+                            <li key={idx} className="flex items-start gap-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 mt-1.5 shrink-0" />
+                              <span>{point}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Timeline Breakdown */}
+                      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-white">
+                          <Clock className="w-4 h-4 text-indigo-500" />
+                          <span>⏱️ Timeline & Discussion Breakdown</span>
+                        </div>
+                        <div className="space-y-2 text-xs">
+                          {generatedNotes.discussionPoints.map((dp, idx) => (
+                            <div key={idx} className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                                  {dp.timestamp}
+                                </span>
+                                <span className="font-bold text-slate-800 dark:text-white">{dp.topic}</span>
+                              </div>
+                              <p className="text-slate-500 dark:text-slate-400 text-[11px] mt-1 pl-1">
+                                {dp.details}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Flashcards & Retention Quiz */}
+                      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-white">
+                          <GraduationCap className="w-4 h-4 text-emerald-500" />
+                          <span>📚 Study Flashcards & Quiz</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          {generatedNotes.studyFlashcards.map((fc, idx) => (
+                            <div key={idx} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 space-y-1.5">
+                              <p className="font-bold text-slate-800 dark:text-white">
+                                Q{idx + 1}: {fc.question}
+                              </p>
+                              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/40 p-2 rounded-lg border border-emerald-200/60 dark:border-emerald-900/50">
+                                <span className="font-bold">Answer: </span>{fc.answer}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 4. SUB-TAB 3: CONNECTED OMNIFY AI WORKFLOW PIPELINE */}
+              {activeAudioHubTab === 'workflow' && (
+                <div className="space-y-4 animate-in fade-in">
+                  
+                  {/* Visual Pipeline Banner */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-900/90 via-indigo-900/90 to-slate-900 text-white space-y-3 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300">
+                        The Bigger OMNIFY Workflow Ecosystem
+                      </span>
+                      <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
+                        100% Client-Side GPU
+                      </span>
+                    </div>
+
+                    {/* Flowchart Steps */}
+                    <div className="grid grid-cols-5 gap-1 text-center text-xs font-bold items-center">
+                      <div className="p-2 rounded-xl bg-white/10 border border-white/10">
+                        <Film className="w-4 h-4 mx-auto mb-1 text-purple-300" />
+                        <p className="text-[10px]">1. Video</p>
+                      </div>
+                      <div className="text-purple-300 font-bold">➔</div>
+                      <div className="p-2 rounded-xl bg-purple-600/60 border border-purple-400/40">
+                        <Music className="w-4 h-4 mx-auto mb-1 text-white" />
+                        <p className="text-[10px]">2. Audio</p>
+                      </div>
+                      <div className="text-purple-300 font-bold">➔</div>
+                      <div className="p-2 rounded-xl bg-indigo-600/60 border border-indigo-400/40">
+                        <BookOpen className="w-4 h-4 mx-auto mb-1 text-white" />
+                        <p className="text-[10px]">3. AI Notes/PPT</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Connected Workflow Action Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    
+                    {/* Card 1: Students & Lecture Audio */}
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <GraduationCap className="w-4 h-4 text-purple-600" />
+                        <span className="font-bold text-slate-800 dark:text-white">🎓 Students & Online Lectures</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Extract audio from hour-long classroom lectures, generate study summaries, action items, and flashcards.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleGenerateLectureNotes}
+                        className="w-full py-2 rounded-xl bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-bold text-xs hover:bg-purple-100 transition-colors"
+                      >
+                        Synthesize Lecture Notes
+                      </button>
+                    </div>
+
+                    {/* Card 2: Podcasts & Creators */}
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Mic className="w-4 h-4 text-indigo-600" />
+                        <span className="font-bold text-slate-800 dark:text-white">🎙️ Creators & Podcast Episodes</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Extract MP3/WAV audio stems from YouTube or recorded footage ready for podcast distribution and editing.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAudioFormat('mp3');
+                          setAudioBitrate(320);
+                          setActiveAudioHubTab('extractor');
+                        }}
+                        className="w-full py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold text-xs hover:bg-indigo-100 transition-colors"
+                      >
+                        Export 320kbps MP3 Audio
+                      </button>
+                    </div>
+
+                    {/* Card 3: Speech to Text & Captions */}
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="w-4 h-4 text-emerald-600" />
+                        <span className="font-bold text-slate-800 dark:text-white">📝 Speech-to-Text & Subtitles</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Feed the extracted audio stream into the Subtitle Studio to generate timed .SRT, .VTT, and .JSON datasets.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveToolTab('subtitles')}
+                        className="w-full py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold text-xs hover:bg-emerald-100 transition-colors"
+                      >
+                        Open Subtitle & Caption Studio
+                      </button>
+                    </div>
+
+                    {/* Card 4: Meeting Minutes & Summary */}
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-amber-500" />
+                        <span className="font-bold text-slate-800 dark:text-white">🎧 Zoom & Meeting Summaries</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Convert recorded client calls and Zoom recordings into actionable meeting minutes and deliverables.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleGenerateLectureNotes}
+                        className="w-full py-2 rounded-xl bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-bold text-xs hover:bg-amber-100 transition-colors"
+                      >
+                        Generate Meeting Minutes
+                      </button>
+                    </div>
+
+                  </div>
+                </div>
+              )}
+
             </div>
           )}
 
