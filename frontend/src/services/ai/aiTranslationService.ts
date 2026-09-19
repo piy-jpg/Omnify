@@ -21,7 +21,8 @@ export type TranslationMode =
   | 'business'
   | 'technical'
   | 'simple'
-  | 'creative';
+  | 'creative'
+  | 'medical';
 
 export interface TranslationRequest {
   text: string;

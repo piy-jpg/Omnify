@@ -1,6 +1,6 @@
 import React from 'react';
 import { TranslationMode } from '../../services/ai/aiTranslationService';
-import { Sparkles, Briefcase, Award, Smile, GraduationCap, Building2, Cpu, Feather, Palette } from 'lucide-react';
+import { Sparkles, Briefcase, Award, Smile, GraduationCap, Building2, Cpu, Feather, Palette, Stethoscope } from 'lucide-react';
 
 interface TranslatorModeSelectorProps {
   selectedMode: TranslationMode;
@@ -78,6 +78,13 @@ export const MODES_LIST: ModeItem[] = [
     description: 'Engaging, expressive, and stylistic flow',
     icon: Palette,
     badgeColor: 'text-fuchsia-600 bg-fuchsia-50 dark:bg-fuchsia-950/60 dark:text-fuchsia-400'
+  },
+  {
+    id: 'medical',
+    label: 'Medical',
+    description: 'Clinical accuracy for prescriptions, lab reports & patient documents',
+    icon: Stethoscope,
+    badgeColor: 'text-red-600 bg-red-50 dark:bg-red-950/60 dark:text-red-400'
   }
 ];
 

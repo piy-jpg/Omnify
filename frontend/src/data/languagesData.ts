@@ -125,7 +125,34 @@ export const SUPPORTED_LANGUAGES: LanguageItem[] = [
   { code: 'xh', name: 'Xhosa', nativeName: 'isiXhosa', flag: '🇿🇦' },
   { code: 'yi', name: 'Yiddish', nativeName: 'ייִדיש', flag: '🇮🇱' },
   { code: 'yo', name: 'Yoruba', nativeName: 'Èdè Yorùbá', flag: '🇳🇬' },
-  { code: 'zu', name: 'Zulu', nativeName: 'isiZulu', flag: '🇿🇦' }
+  { code: 'zu', name: 'Zulu', nativeName: 'isiZulu', flag: '🇿🇦' },
+
+  // 25 Additional Languages (Regional, Indigenous & Widely Spoken)
+  { code: 'ak', name: 'Akan (Twi)', nativeName: 'Twi', flag: '🇬🇭' },
+  { code: 'br', name: 'Breton', nativeName: 'Brezhoneg', flag: '🇫🇷' },
+  { code: 'ch', name: 'Chamorro', nativeName: 'Chamoru', flag: '🇬🇺' },
+  { code: 'dz', name: 'Dzongkha', nativeName: 'རྫོང་ཁ', flag: '🇧🇹' },
+  { code: 'ff', name: 'Fula (Fulani)', nativeName: 'Fulfulde', flag: '🇸🇳' },
+  { code: 'fy', name: 'Frisian (Western)', nativeName: 'Frysk', flag: '🇳🇱' },
+  { code: 'fo', name: 'Faroese', nativeName: 'Føroyskt', flag: '🇫🇴' },
+  { code: 'fj', name: 'Fijian', nativeName: 'Vosa Vakaviti', flag: '🇫🇯' },
+  { code: 'ilo', name: 'Ilocano', nativeName: 'Ilokano', flag: '🇵🇭' },
+  { code: 'kl', name: 'Kalaallisut (Greenlandic)', nativeName: 'Kalaallisut', flag: '🇬🇱' },
+  { code: 'ln', name: 'Lingala', nativeName: 'Lingála', flag: '🇨🇩' },
+  { code: 'lua', name: 'Luba-Kasai', nativeName: 'Tshiluba', flag: '🇨🇩' },
+  { code: 'mh', name: 'Marshallese', nativeName: 'Kajin M̧ajeļ', flag: '🇲🇭' },
+  { code: 'nv', name: 'Navajo', nativeName: 'Diné bizaad', flag: '🇺🇸' },
+  { code: 'oc', name: 'Occitan', nativeName: 'Occitan', flag: '🇫🇷' },
+  { code: 'qu', name: 'Quechua', nativeName: 'Runasimi', flag: '🇵🇪' },
+  { code: 'rm', name: 'Romansh', nativeName: 'Rumantsch', flag: '🇨🇭' },
+  { code: 'rn', name: 'Rundi (Kirundi)', nativeName: 'Ikirundi', flag: '🇧🇮' },
+  { code: 'sc', name: 'Sardinian', nativeName: 'Sardu', flag: '🇮🇹' },
+  { code: 'sg', name: 'Sango', nativeName: 'Yângâ tî sängö', flag: '🇨🇫' },
+  { code: 'to', name: 'Tongan', nativeName: 'lea fakatonga', flag: '🇹🇴' },
+  { code: 'ty', name: 'Tahitian', nativeName: 'Reo Tahiti', flag: '🇵🇫' },
+  { code: 'wo', name: 'Wolof', nativeName: 'Wolof', flag: '🇸🇳' },
+  { code: 'za', name: 'Zhuang', nativeName: 'Vahcuengh', flag: '🇨🇳' },
+  { code: 'ab', name: 'Abkhazian', nativeName: 'Аԥсуа бызшәа', flag: '🇬🇪' }
 ];
 
 export const AUTO_DETECT_LANGUAGE: LanguageItem = {
