@@ -221,59 +221,39 @@ export function getFfprobePath() {
   return 'ffprobe';
 }
 
-import https from 'https';
 import zlib from 'zlib';
 
 /**
- * Download and extract a gzip-compressed binary directly to the target path
+ * Download and extract binary using native fetch and zlib
  */
-function downloadAndExtract(url, destPath) {
-  return new Promise((resolve, reject) => {
-    const tempDest = `${destPath}.tmp_${Date.now()}`;
-    const fileStream = fs.createWriteStream(tempDest);
-
-    function requestUrl(targetUrl) {
-      https.get(targetUrl, { headers: { 'User-Agent': 'Omnify-Serverless' } }, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return requestUrl(res.headers.location);
-        }
-        if (res.statusCode !== 200) {
-          fileStream.close();
-          try { if (fs.existsSync(tempDest)) fs.unlinkSync(tempDest); } catch (_) {}
-          return reject(new Error(`Failed to download binary: HTTP ${res.statusCode}`));
-        }
-
-        const isGz = targetUrl.endsWith('.gz') || res.headers['content-encoding'] === 'gzip';
-        const stream = isGz ? res.pipe(zlib.createGunzip()) : res;
-
-        stream.pipe(fileStream);
-
-        fileStream.on('finish', () => {
-          fileStream.close(() => {
-            try {
-              fs.renameSync(tempDest, destPath);
-              fs.chmodSync(destPath, 0o755);
-              resolve(destPath);
-            } catch (err) {
-              reject(err);
-            }
-          });
-        });
-
-        stream.on('error', (err) => {
-          fileStream.close();
-          try { if (fs.existsSync(tempDest)) fs.unlinkSync(tempDest); } catch (_) {}
-          reject(err);
-        });
-      }).on('error', (err) => {
-        fileStream.close();
-        try { if (fs.existsSync(tempDest)) fs.unlinkSync(tempDest); } catch (_) {}
-        reject(err);
-      });
-    }
-
-    requestUrl(url);
+async function downloadAndExtract(url, destPath) {
+  const tempDest = `${destPath}.tmp_${Date.now()}`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; OmnifyServerless/1.0)'
+    },
+    redirect: 'follow'
   });
+
+  if (!res.ok) {
+    throw new Error(`Failed to download binary from ${url}: HTTP ${res.status} ${res.statusText}`);
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  let binaryBuffer = buffer;
+  if (buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
+    binaryBuffer = zlib.gunzipSync(buffer);
+  }
+
+  fs.writeFileSync(tempDest, binaryBuffer, { mode: 0o755 });
+  try {
+    if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+  } catch (_) {}
+  fs.renameSync(tempDest, destPath);
+  fs.chmodSync(destPath, 0o755);
+  return destPath;
 }
 
 /**
