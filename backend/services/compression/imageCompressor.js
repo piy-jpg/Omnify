@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { execFfmpegCommand } from '../../config/ffmpeg.js';
 
 const execAsync = promisify(exec);
 
@@ -53,22 +54,22 @@ export async function compressImage(inputPath, outputPath, options = {}) {
   }
 
   try {
-    let ffmpegCmd = '';
+    let ffmpegArgs = '';
 
     if (ext === '.jpg' || ext === '.jpeg') {
       // JPEG quality: ffmpeg -q:v maps 2 (best) - 31 (worst)
       // Convert 100-1 scale to ffmpeg scale: 100 -> 2, 80 -> 4, 60 -> 7, 30 -> 14, 10 -> 25
       const qv = Math.max(2, Math.min(31, Math.round(31 - (effectiveQuality / 100) * 29)));
-      ffmpegCmd = `ffmpeg -y -i "${inputPath}" ${scaleFilter} -frames:v 1 -update 1 -q:v ${qv} "${outputPath}"`;
-      await execAsync(ffmpegCmd);
+      ffmpegArgs = `-y -i "${inputPath}" ${scaleFilter} -frames:v 1 -update 1 -q:v ${qv} "${outputPath}"`;
+      await execFfmpegCommand(ffmpegArgs);
     } else if (ext === '.webp') {
       // WebP quality: 0 - 100 via cwebp or ffmpeg
       const webpQuality = Math.max(1, Math.min(100, effectiveQuality));
       try {
         await execAsync(`cwebp -q ${webpQuality} "${inputPath}" -o "${outputPath}"`);
       } catch {
-        ffmpegCmd = `ffmpeg -y -i "${inputPath}" ${scaleFilter} -frames:v 1 -update 1 "${outputPath}"`;
-        await execAsync(ffmpegCmd);
+        ffmpegArgs = `-y -i "${inputPath}" ${scaleFilter} -frames:v 1 -update 1 "${outputPath}"`;
+        await execFfmpegCommand(ffmpegArgs);
       }
     } else if (ext === '.png') {
       // PNG optimization: For quality < 95 or non-high_quality modes, use palette quantization + dithering
@@ -86,18 +87,18 @@ export async function compressImage(inputPath, outputPath, options = {}) {
 
       try {
         // First try high-compression palettegen
-        ffmpegCmd = `ffmpeg -y -i "${inputPath}" -filter_complex "[0:v]${scalePrefix}split[a][b];[a]palettegen=max_colors=${maxColors}:reserve_transparent=1[p];[b][p]paletteuse=dither=${ditherMode}:alpha_threshold=128" -frames:v 1 -update 1 -compression_level 9 "${outputPath}"`;
-        await execAsync(ffmpegCmd);
+        ffmpegArgs = `-y -i "${inputPath}" -filter_complex "[0:v]${scalePrefix}split[a][b];[a]palettegen=max_colors=${maxColors}:reserve_transparent=1[p];[b][p]paletteuse=dither=${ditherMode}:alpha_threshold=128" -frames:v 1 -update 1 -compression_level 9 "${outputPath}"`;
+        await execFfmpegCommand(ffmpegArgs);
       } catch {
         // Fallback to standard deflate PNG if palettegen fails
         const compLevel = compressionMode === 'max' ? 9 : 8;
-        ffmpegCmd = `ffmpeg -y -i "${inputPath}" ${scaleFilter} -frames:v 1 -update 1 -compression_level ${compLevel} -pred mixed "${outputPath}"`;
-        await execAsync(ffmpegCmd);
+        ffmpegArgs = `-y -i "${inputPath}" ${scaleFilter} -frames:v 1 -update 1 -compression_level ${compLevel} -pred mixed "${outputPath}"`;
+        await execFfmpegCommand(ffmpegArgs);
       }
     } else {
       // Default image handler
-      ffmpegCmd = `ffmpeg -y -i "${inputPath}" ${scaleFilter} -frames:v 1 -update 1 "${outputPath}"`;
-      await execAsync(ffmpegCmd);
+      ffmpegArgs = `-y -i "${inputPath}" ${scaleFilter} -frames:v 1 -update 1 "${outputPath}"`;
+      await execFfmpegCommand(ffmpegArgs);
     }
 
     if (!fs.existsSync(outputPath)) {

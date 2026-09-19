@@ -1,10 +1,7 @@
 import path from 'path';
 import fs from 'fs';
-import { promisify } from 'util';
-import { exec } from 'child_process';
 import { WATERMARK_UPLOAD_DIR, WATERMARK_OUTPUT_DIR } from '../../config/env.js';
-
-const execAsync = promisify(exec);
+import { execFfmpegCommand } from '../../config/ffmpeg.js';
 
 export const watermarkJobs = new Map();
 
@@ -19,7 +16,7 @@ export async function analyzeWatermarkMedia(filePath, originalname, mimetype) {
   let hasAudio = false;
 
   try {
-    const { stdout: probeOut } = await execAsync(`ffmpeg -i "${filePath}" 2>&1 || true`);
+    const { stdout: probeOut } = await execFfmpegCommand(`-i "${filePath}" 2>&1 || true`);
     const resMatch = probeOut.match(/(\d{3,5})x(\d{3,5})/);
     if (resMatch) {
       width = parseInt(resMatch[1], 10);
@@ -73,7 +70,7 @@ export async function removeImageWatermark(sourcePath, boundingBoxes = []) {
   const outFilename = `cleaned-${Date.now()}-${path.basename(sourcePath, path.extname(sourcePath))}.png`;
   const outPath = path.join(WATERMARK_OUTPUT_DIR, outFilename);
 
-  const { stdout: probeOut } = await execAsync(`ffmpeg -i "${sourcePath}" 2>&1 || true`);
+  const { stdout: probeOut } = await execFfmpegCommand(`-i "${sourcePath}" 2>&1 || true`);
   let imgW = 1920;
   let imgH = 1080;
   const resMatch = probeOut.match(/(\d{3,5})x(\d{3,5})/);
@@ -91,10 +88,10 @@ export async function removeImageWatermark(sourcePath, boundingBoxes = []) {
   });
 
   const filterString = filterParts.join(',');
-  const cmd = `ffmpeg -i "${sourcePath}" -vf "${filterString}" "${outPath}" -y`;
+  const args = `-i "${sourcePath}" -vf "${filterString}" "${outPath}" -y`;
 
-  console.log('[Watermark Image Inpaint] Executing:', cmd);
-  await execAsync(cmd);
+  console.log('[Watermark Image Inpaint] Executing FFmpeg with args:', args);
+  await execFfmpegCommand(args);
 
   return {
     outFilename,
@@ -126,7 +123,7 @@ export async function startVideoWatermarkRemoval(sourcePath, originalName, bound
   // Run async video inpainting in background
   (async () => {
     try {
-      const { stdout: probeOut } = await execAsync(`ffmpeg -i "${sourcePath}" 2>&1 || true`);
+      const { stdout: probeOut } = await execFfmpegCommand(`-i "${sourcePath}" 2>&1 || true`);
       let vidW = 1920;
       let vidH = 1080;
       const resMatch = probeOut.match(/(\d{3,5})x(\d{3,5})/);
@@ -144,12 +141,12 @@ export async function startVideoWatermarkRemoval(sourcePath, originalName, bound
       });
 
       const filterString = filterParts.join(',');
-      const cmd = `ffmpeg -i "${sourcePath}" -vf "${filterString}" -c:v libx264 -preset fast -crf 22 -c:a copy "${outPath}" -y`;
+      const args = `-i "${sourcePath}" -vf "${filterString}" -c:v libx264 -preset fast -crf 22 -c:a copy "${outPath}" -y`;
 
       job.progress = 35;
       job.stageMessage = 'Reconstructing video frames with temporal delogo interpolation...';
 
-      await execAsync(cmd);
+      await execFfmpegCommand(args);
 
       job.status = 'completed';
       job.progress = 100;

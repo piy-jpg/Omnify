@@ -11,18 +11,15 @@
 
 import fs from 'fs';
 import path from 'path';
-import { exec, spawn } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import { execFfprobeCommand, execFfmpegCommand, spawnFfmpeg } from '../../config/ffmpeg.js';
 
 /**
  * Probe video metadata using ffprobe
  */
 export async function probeVideoMetadata(filePath) {
   try {
-    const cmd = `ffprobe -v quiet -print_format json -show_format -show_streams "${filePath}"`;
-    const { stdout } = await execAsync(cmd);
+    const cmd = `-v quiet -print_format json -show_format -show_streams "${filePath}"`;
+    const { stdout } = await execFfprobeCommand(cmd);
     const info = JSON.parse(stdout);
 
     const videoStream = info.streams?.find(s => s.codec_type === 'video') || {};
@@ -169,7 +166,7 @@ export function compressVideo(inputPath, outputPath, options = {}, onProgress = 
 
     console.log('[Video Compressor] Spawning FFmpeg with args:', args.join(' '));
 
-    const ffmpegProc = spawn('ffmpeg', args);
+    const ffmpegProc = spawnFfmpeg(args);
 
     ffmpegProc.stderr.on('data', (chunk) => {
       const msg = chunk.toString();
@@ -219,8 +216,8 @@ export function compressVideo(inputPath, outputPath, options = {}, onProgress = 
             // Adaptive 2nd pass: Downscale to 720p with tight bitrate cap (e.g. 50% of original bitrate)
             const retryBitrate = Math.max(120, Math.round(initialBitrateKbps * 0.45));
             const retryScale = (initialMeta.height > 720 || initialMeta.width > 1280) ? '-vf scale=-2:720' : '-vf scale=-2:480';
-            const retryCmd = `ffmpeg -y -i "${inputPath}" ${retryScale} -c:v libx264 -preset fast -crf 30 -maxrate ${retryBitrate}k -bufsize ${retryBitrate * 2}k -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 96k "${outputPath}"`;
-            await execAsync(retryCmd);
+            const retryArgs = `-y -i "${inputPath}" ${retryScale} -c:v libx264 -preset fast -crf 30 -maxrate ${retryBitrate}k -bufsize ${retryBitrate * 2}k -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 96k "${outputPath}"`;
+            await execFfmpegCommand(retryArgs);
 
             if (fs.existsSync(outputPath)) {
               const retryStats = fs.statSync(outputPath);

@@ -1,10 +1,7 @@
 import path from 'path';
 import fs from 'fs';
-import { promisify } from 'util';
-import { exec } from 'child_process';
 import { CONVERTED_DIR } from '../../config/env.js';
-
-const execAsync = promisify(exec);
+import { execFfmpegCommand } from '../../config/ffmpeg.js';
 
 export async function handleProcessAudio(req, res) {
   try {
@@ -19,26 +16,26 @@ export async function handleProcessAudio(req, res) {
     const outFilename = `audio_${Date.now()}_${cleanBase}.${outExt}`;
     const outputPath = path.join(CONVERTED_DIR, outFilename);
 
-    let ffmpegCmd = '';
+    let ffmpegArgs = '';
 
     if (operation === 'cut') {
       const safeStart = Math.max(0, parseFloat(startTime) || 0);
       const safeEnd = Math.max(safeStart + 0.1, parseFloat(endTime) || 60);
-      ffmpegCmd = `ffmpeg -ss ${safeStart} -to ${safeEnd} -i "${inputPath}" -y "${outputPath}"`;
+      ffmpegArgs = `-ss ${safeStart} -to ${safeEnd} -i "${inputPath}" -y "${outputPath}"`;
     } else if (operation === 'enhance') {
       const filter = 'highpass=f=80,equalizer=f=3000:t=q:w=1.2:g=4,acompressor=threshold=-24dB:ratio=4:attack=5:release=50';
-      ffmpegCmd = `ffmpeg -i "${inputPath}" -af "${filter}" -y "${outputPath}"`;
+      ffmpegArgs = `-i "${inputPath}" -af "${filter}" -y "${outputPath}"`;
     } else if (operation === 'compress') {
       const compBitrate = bitrate || '96k';
-      ffmpegCmd = `ffmpeg -i "${inputPath}" -b:a ${compBitrate} -ar 44100 -y "${outputPath}"`;
+      ffmpegArgs = `-i "${inputPath}" -b:a ${compBitrate} -ar 44100 -y "${outputPath}"`;
     } else if (operation === 'extract') {
-      ffmpegCmd = `ffmpeg -i "${inputPath}" -vn -c:a libmp3lame -b:a 256k -y "${outputPath}"`;
+      ffmpegArgs = `-i "${inputPath}" -vn -c:a libmp3lame -b:a 256k -y "${outputPath}"`;
     } else {
-      ffmpegCmd = `ffmpeg -i "${inputPath}" -b:a ${bitrate} -y "${outputPath}"`;
+      ffmpegArgs = `-i "${inputPath}" -b:a ${bitrate} -y "${outputPath}"`;
     }
 
-    console.log('[Audio Processing] Executing:', ffmpegCmd);
-    await execAsync(ffmpegCmd);
+    console.log('[Audio Processing] Executing FFmpeg with args:', ffmpegArgs);
+    await execFfmpegCommand(ffmpegArgs);
 
     const stats = fs.statSync(outputPath);
     return res.json({

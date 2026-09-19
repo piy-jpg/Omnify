@@ -11,12 +11,9 @@
 
 import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import JSZip from 'jszip';
 import { probeVideoMetadata } from '../compression/videoCompressor.js';
-
-const execAsync = promisify(exec);
+import { execFfmpegCommand } from '../../config/ffmpeg.js';
 
 // In-memory active video split jobs store
 export const videoSplitJobs = new Map();
@@ -214,12 +211,12 @@ async function executeSplitJob(jobId, sourceFilePath) {
       const startTimestamp = toFFmpegTimestamp(seg.startTime);
       const segDur = seg.duration.toFixed(3);
 
-      let ffmpegCmd = '';
+      let ffmpegArgs = '';
 
       if (useStreamCopy) {
         // Stream Copy (Lossless & High Speed)
         const audioFlag = job.audioOption === 'remove' ? '-an' : '-c:a copy';
-        ffmpegCmd = `ffmpeg -ss ${startTimestamp} -i "${sourceFilePath}" -t ${segDur} -c:v copy ${audioFlag} -avoid_negative_ts make_zero "${outPath}" -y`;
+        ffmpegArgs = `-ss ${startTimestamp} -i "${sourceFilePath}" -t ${segDur} -c:v copy ${audioFlag} -avoid_negative_ts make_zero "${outPath}" -y`;
       } else {
         // Accurate Frame Transcoding
         let crf = '22';
@@ -232,10 +229,10 @@ async function executeSplitJob(jobId, sourceFilePath) {
 
         const audioFlag = job.audioOption === 'remove' ? '-an' : '-c:a aac -b:a 192k';
 
-        ffmpegCmd = `ffmpeg -ss ${startTimestamp} -i "${sourceFilePath}" -t ${segDur} -c:v ${videoCodec} -crf ${crf} -preset veryfast -pix_fmt yuv420p ${audioFlag} "${outPath}" -y`;
+        ffmpegArgs = `-ss ${startTimestamp} -i "${sourceFilePath}" -t ${segDur} -c:v ${videoCodec} -crf ${crf} -preset veryfast -pix_fmt yuv420p ${audioFlag} "${outPath}" -y`;
       }
 
-      await execAsync(ffmpegCmd);
+      await execFfmpegCommand(ffmpegArgs);
 
       // Verify generated segment file
       if (fs.existsSync(outPath)) {

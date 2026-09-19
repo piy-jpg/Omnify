@@ -8,10 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import JSZip from 'jszip';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import { execFfmpegCommand } from '../../config/ffmpeg.js';
 
 export async function compressPPTX(inputPath, outputPath, options = {}) {
   const {
@@ -26,45 +23,45 @@ export async function compressPPTX(inputPath, outputPath, options = {}) {
   try {
     const zip = await JSZip.loadAsync(originalBuffer);
 
-    // Validate valid PPTX structure
+    // Validate PPTX package
     if (!zip.file('[Content_Types].xml') || !zip.file('ppt/presentation.xml')) {
       throw new Error('Invalid PPTX presentation structure.');
     }
 
-    // Locate embedded slide images
+    // Identify embedded presentation media
     const mediaFiles = Object.keys(zip.files).filter(name =>
       name.startsWith('ppt/media/') && !zip.files[name].dir
     );
 
-    // Optimize embedded images
+    // Optimize images embedded in slides
     for (const mediaPath of mediaFiles) {
       const entry = zip.file(mediaPath);
       if (!entry) continue;
 
       const mediaBuffer = await entry.async('nodebuffer');
-      if (mediaBuffer.length < 20 * 1024) continue; // Skip small icons (< 20 KB)
+      if (mediaBuffer.length < 15 * 1024) continue; // Skip tiny slide icons (< 15 KB)
 
       const ext = path.extname(mediaPath).toLowerCase();
       if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
         try {
-          const tmpIn = `/tmp/pptx_media_in_${Date.now()}_${Math.random().toString(36).substr(2, 5)}${ext}`;
-          const tmpOut = `/tmp/pptx_media_out_${Date.now()}_${Math.random().toString(36).substr(2, 5)}${ext}`;
+          const tmpIn = path.join(path.dirname(outputPath), `pptx_media_in_${Date.now()}_${Math.random().toString(36).substr(2, 5)}${ext}`);
+          const tmpOut = path.join(path.dirname(outputPath), `pptx_media_out_${Date.now()}_${Math.random().toString(36).substr(2, 5)}${ext}`);
           fs.writeFileSync(tmpIn, mediaBuffer);
 
           let qv = 5; // Balanced for presentations
           if (compressionMode === 'max' || quality < 55) qv = 10;
           else if (compressionMode === 'high_quality' || quality > 85) qv = 2;
 
-          let cmd = '';
+          let ffmpegArgs = '';
           if (ext === '.jpg' || ext === '.jpeg') {
-            cmd = `ffmpeg -y -i "${tmpIn}" -q:v ${qv} "${tmpOut}"`;
+            ffmpegArgs = `-y -i "${tmpIn}" -q:v ${qv} "${tmpOut}"`;
           } else if (ext === '.png') {
-            cmd = `ffmpeg -y -i "${tmpIn}" -filter_complex "[0:v]split[a][b];[a]palettegen=max_colors=256:reserve_transparent=1[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:alpha_threshold=128" -compression_level 9 "${tmpOut}"`;
+            ffmpegArgs = `-y -i "${tmpIn}" -filter_complex "[0:v]split[a][b];[a]palettegen=max_colors=256:reserve_transparent=1[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:alpha_threshold=128" -compression_level 9 "${tmpOut}"`;
           } else {
-            cmd = `ffmpeg -y -i "${tmpIn}" -quality ${quality} "${tmpOut}"`;
+            ffmpegArgs = `-y -i "${tmpIn}" -quality ${quality} "${tmpOut}"`;
           }
 
-          await execAsync(cmd);
+          await execFfmpegCommand(ffmpegArgs);
 
           if (fs.existsSync(tmpOut)) {
             const optimized = fs.readFileSync(tmpOut);
