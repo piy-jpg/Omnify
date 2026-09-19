@@ -13,10 +13,12 @@ import {
   Eye,
   Sliders,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  TrendingDown
 } from 'lucide-react';
 import { QueueItem } from '../../types/compression';
 import { formatBytes } from '../../utils/formatters';
+import { estimateOutputSize } from '../../utils/compressionEstimator';
 
 interface CompressionQueueProps {
   items: QueueItem[];
@@ -141,21 +143,41 @@ export const CompressionQueue: React.FC<CompressionQueueProps> = ({
                       {item.format}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                    <span>{formatBytes(item.originalSize)}</span>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 flex-wrap">
+                    <span className="font-mono">{formatBytes(item.originalSize)}</span>
+                    {/* Show actual result if complete */}
                     {item.compressedSize !== undefined && (
                       <>
-                        <span>➔</span>
-                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                        <span>→</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
                           {formatBytes(item.compressedSize)}
                         </span>
                         {item.savedBytes !== undefined && item.savedBytes > 0 && (
-                          <span className="text-slate-400">
-                            (saved {formatBytes(item.savedBytes)})
+                          <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-bold text-[10px]">
+                            -{item.reductionPercentage}%
                           </span>
                         )}
                       </>
                     )}
+                    {/* Show live estimate for waiting items */}
+                    {item.compressedSize === undefined && item.status === 'waiting' && (() => {
+                      const est = estimateOutputSize([item], item.options);
+                      if (est.reductionPercentage > 0) {
+                        return (
+                          <>
+                            <span className="text-slate-300 dark:text-slate-600">→</span>
+                            <span className="font-mono text-slate-500 dark:text-slate-400">
+                              ~{formatBytes(est.estimatedBytes)}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-[10px] flex items-center gap-0.5">
+                              <TrendingDown className="w-2.5 h-2.5" />
+                              est. -{est.reductionPercentage}%
+                            </span>
+                          </>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 </div>
               </div>

@@ -110,6 +110,30 @@ export const BatchSummaryReport: React.FC<BatchSummaryReportProps> = ({
         </div>
       </div>
 
+      {/* ── PROMINENT DOWNLOAD ALL CTA ─────────────────────────────────── */}
+      {items.length > 1 && (
+        <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white shadow-lg shadow-emerald-500/25">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <p className="font-extrabold text-base flex items-center gap-2">
+                <Archive className="w-5 h-5 text-white/80" />
+                Download All Compressed Files
+              </p>
+              <p className="text-xs text-emerald-100/80">
+                {items.length} files bundled into a single ZIP — {formatBytes(summary.totalCompressedBytes)} total
+              </p>
+            </div>
+            <button
+              onClick={onDownloadAllZip}
+              className="flex items-center justify-center gap-2 px-8 py-3 rounded-2xl bg-white text-emerald-700 font-extrabold text-sm hover:bg-emerald-50 active:scale-[0.98] transition-all shadow-lg shadow-black/10 whitespace-nowrap"
+            >
+              <Download className="w-4 h-4" />
+              Download ZIP ({items.length} files)
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Breakdown Table */}
       <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900">
         <div className="p-3 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200/80 dark:border-slate-800 text-[11px] font-extrabold uppercase tracking-wider text-slate-400 grid grid-cols-12 gap-2">
@@ -136,17 +160,23 @@ export const BatchSummaryReport: React.FC<BatchSummaryReportProps> = ({
                 {formatBytes(item.originalSize)}
               </div>
 
-              <div className="col-span-2 sm:col-span-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                {item.compressedSize ? formatBytes(item.compressedSize) : '-'}
+              <div className="col-span-2 sm:col-span-2 text-right font-mono">
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                  {item.compressedSize ? formatBytes(item.compressedSize) : '-'}
+                </span>
+                {item.reductionPercentage !== undefined && item.reductionPercentage > 0 && (
+                  <span className="block text-[10px] text-emerald-500 font-bold">-{item.reductionPercentage}%</span>
+                )}
               </div>
 
               <div className="col-span-2 text-right">
                 <button
                   onClick={() => onDownloadSingle(item)}
-                  className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 font-bold transition-colors"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-bold transition-colors text-[11px]"
                   title="Download file"
                 >
                   <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Save</span>
                 </button>
               </div>
             </div>
@@ -157,3 +187,4 @@ export const BatchSummaryReport: React.FC<BatchSummaryReportProps> = ({
     </div>
   );
 };
+
