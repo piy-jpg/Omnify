@@ -25,7 +25,8 @@ import {
   FolderOpen,
   Mic,
   MicOff,
-  VolumeX
+  VolumeX,
+  RotateCcw
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { TranslatorHeader } from '../components/translator/TranslatorHeader';
@@ -83,7 +84,9 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
   const [sourceText, setSourceText] = useState('');
   const [translatedText, setTranslatedText] = useState('');
   const [lastTranslatedSource, setLastTranslatedSource] = useState('');
+  const [lastGeneratedTranslationText, setLastGeneratedTranslationText] = useState('');
   const [lastTranslatedTarget, setLastTranslatedTarget] = useState('hi');
+  const [showReplaceConfirmModal, setShowReplaceConfirmModal] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -97,12 +100,19 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [translationSuccess, setTranslationSuccess] = useState(false);
 
+  // Check if output has manual edits compared to what AI originally produced
+  const isOutputManuallyEdited = Boolean(
+    translatedText.trim() &&
+    lastGeneratedTranslationText.trim() &&
+    translatedText.trim() !== lastGeneratedTranslationText.trim()
+  );
+
   // Check if input source text or target language has changed since last translation
   const isSourceChanged = Boolean(
-    sourceText.trim() && (
-      sourceText.trim() !== lastTranslatedSource.trim() || 
-      targetLang.code !== lastTranslatedTarget
-    )
+    translatedText.trim() &&
+    lastTranslatedSource.trim() &&
+    sourceText.trim() &&
+    (sourceText.trim() !== lastTranslatedSource.trim() || targetLang.code !== lastTranslatedTarget)
   );
 
   // Document translation state
@@ -215,6 +225,20 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     }
   };
 
+  // Intelligent Re-Translate click handler
+  const handleReTranslateClick = () => {
+    if (isOutputManuallyEdited) {
+      setShowReplaceConfirmModal(true);
+    } else {
+      handleTranslateText();
+    }
+  };
+
+  const handleConfirmReTranslate = () => {
+    setShowReplaceConfirmModal(false);
+    handleTranslateText();
+  };
+
   // Direct Text Translation Trigger
   const handleTranslateText = async () => {
     if (!sourceText.trim()) {
@@ -244,6 +268,7 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
       setProgressPercent(100);
       setProgressStage('Translation complete!');
       setTranslatedText(response.translatedText);
+      setLastGeneratedTranslationText(response.translatedText);
       setLastTranslatedSource(sourceText);
       setLastTranslatedTarget(targetLang.code);
 
@@ -353,6 +378,7 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
         sections: updatedSections
       });
       setTranslatedText(response.translatedText);
+      setLastGeneratedTranslationText(response.translatedText);
       setLastTranslatedSource(parsedDoc.rawText);
       setLastTranslatedTarget(targetLang.code);
 
@@ -815,37 +841,98 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
 
           </div>
 
-          {/* Translation Actions Toolbar or Translate Button */}
-          {(!translatedText || isSourceChanged) ? (
+          {/* Translation Actions Toolbar or Translate / Re-translate CTA */}
+          {!translatedText ? (
+            /* Initial Translate Button */
             <div className="flex flex-col items-center justify-center pt-2 space-y-2">
               <button
+                type="button"
                 onClick={handleTranslateText}
                 disabled={isTranslating || !sourceText.trim()}
-                className="flex items-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-brand-600 via-indigo-600 to-purple-600 hover:from-brand-700 hover:to-purple-700 text-white font-extrabold text-sm shadow-xl shadow-brand-500/25 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+                className="flex items-center gap-2.5 px-8 py-4 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold text-sm shadow-xl shadow-purple-500/25 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>{translatedText && isSourceChanged ? `Re-translate to ${targetLang.name}` : `Translate to ${targetLang.name}`}</span>
+                <span>{isTranslating ? 'Translating...' : `Translate to ${targetLang.name}`}</span>
               </button>
-              {translatedText && isSourceChanged && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium animate-in fade-in duration-200">
-                  Input changed • Click button above to update translation
-                </p>
-              )}
+            </div>
+          ) : isSourceChanged ? (
+            /* Out of Sync: Translation Needs Update -> Show Re-translate CTA */
+            <div className="space-y-4 pt-1 animate-in fade-in">
+              <div className="p-4 rounded-2xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200/90 dark:border-amber-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-start sm:items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse mt-1 sm:mt-0 shrink-0" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                        Translation needs update
+                      </span>
+                      {isOutputManuallyEdited && (
+                        <span className="text-[10px] font-mono text-purple-700 dark:text-purple-300 bg-purple-100/90 dark:bg-purple-950/90 px-2 py-0.2 rounded-full font-bold">
+                          Manual edit preserved
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-amber-700/90 dark:text-amber-400/90 mt-0.5">
+                      Source text was modified. Previous translation remains visible until you re-translate.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleReTranslateClick}
+                  disabled={isTranslating || !sourceText.trim()}
+                  className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold text-xs shadow-md shadow-purple-500/25 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isTranslating ? 'animate-spin' : ''}`} />
+                  <span>{isTranslating ? 'Re-translating...' : 'Re-translate'}</span>
+                </button>
+              </div>
+
+              {/* Action tools for current translation */}
+              <TranslationActions
+                onCopy={handleCopy}
+                isCopied={isCopied}
+                onOpenExportModal={() => setIsExportModalOpen(true)}
+                onRefineAction={handleRefineAction}
+                isRefining={isRefining}
+                onToggleEdit={() => setIsEditing(!isEditing)}
+                isEditing={isEditing}
+                onSpeak={handleSpeak}
+                isSpeaking={isSpeaking}
+                onToggleDiff={() => setShowDiff(!showDiff)}
+                showDiff={showDiff}
+              />
             </div>
           ) : (
-            <TranslationActions
-              onCopy={handleCopy}
-              isCopied={isCopied}
-              onOpenExportModal={() => setIsExportModalOpen(true)}
-              onRefineAction={handleRefineAction}
-              isRefining={isRefining}
-              onToggleEdit={() => setIsEditing(!isEditing)}
-              isEditing={isEditing}
-              onSpeak={handleSpeak}
-              isSpeaking={isSpeaking}
-              onToggleDiff={() => setShowDiff(!showDiff)}
-              showDiff={showDiff}
-            />
+            /* Translation is Up to Date */
+            <div className="space-y-3 pt-1 animate-in fade-in">
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                  <span>Translation up to date</span>
+                </div>
+                {isOutputManuallyEdited && (
+                  <span className="text-[10px] font-mono text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-md font-medium border border-purple-200/60 dark:border-purple-800/60">
+                    Custom manual edit active
+                  </span>
+                )}
+              </div>
+
+              <TranslationActions
+                onCopy={handleCopy}
+                isCopied={isCopied}
+                onOpenExportModal={() => setIsExportModalOpen(true)}
+                onRefineAction={handleRefineAction}
+                isRefining={isRefining}
+                onToggleEdit={() => setIsEditing(!isEditing)}
+                isEditing={isEditing}
+                onSpeak={handleSpeak}
+                isSpeaking={isSpeaking}
+                onToggleDiff={() => setShowDiff(!showDiff)}
+                showDiff={showDiff}
+              />
+            </div>
           )}
 
           {/* Side-by-Side Diff Section if enabled */}
@@ -1051,6 +1138,48 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
         sourceLanguageName={sourceLang.name}
         targetLanguageName={targetLang.name}
       />
+
+      {/* 8. Confirmation Modal for Re-translating over Manually Edited Output */}
+      {showReplaceConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xl p-5 space-y-4 animate-in zoom-in-95 duration-200"
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-2xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  Replace Manual Translation?
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Re-translate will replace your current translated text and any manual edits you made to it.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowReplaceConfirmModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReTranslate}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Re-translate</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
