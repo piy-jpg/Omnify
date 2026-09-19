@@ -2,15 +2,31 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
+const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let cachedFfmpegPath = null;
 let cachedFfprobePath = null;
+
+/**
+ * Safely resolve a package relative file
+ */
+function resolvePkgBinary(pkgName, subPath) {
+  try {
+    const pkgJson = require.resolve(`${pkgName}/package.json`);
+    const target = path.join(path.dirname(pkgJson), subPath);
+    if (fs.existsSync(target)) {
+      return target;
+    }
+  } catch (_) {}
+  return null;
+}
 
 /**
  * Ensure binary is executable in Vercel/Lambda serverless environments.
@@ -44,11 +60,9 @@ function prepareBinary(srcPath, binaryName) {
   } catch (copyErr) {
     console.warn(`[FFmpeg Helper] Warning preparing binary in ${tempBinaryPath}:`, copyErr.message);
     try {
-      fs.accessSync(srcPath, fs.constants.X_OK);
-      return srcPath;
-    } catch {
-      return srcPath;
-    }
+      fs.chmodSync(srcPath, 0o755);
+    } catch (_) {}
+    return srcPath;
   }
 }
 
@@ -90,6 +104,25 @@ export function getFfmpegPath() {
     if (res) {
       cachedFfmpegPath = res;
       return cachedFfmpegPath;
+    }
+  }
+
+  // 2. Package-resolved binaries (statically traced by Vercel NFT bundler)
+  const pkgCandidates = [
+    resolvePkgBinary('@ffmpeg-installer/linux-x64', 'ffmpeg'),
+    resolvePkgBinary('@ffmpeg-installer/darwin-arm64', 'ffmpeg'),
+    resolvePkgBinary('@ffmpeg-installer/darwin-x64', 'ffmpeg'),
+    resolvePkgBinary('ffmpeg-static', 'ffmpeg'),
+    resolvePkgBinary('ffmpeg-static', 'ffmpeg.exe')
+  ];
+
+  for (const pkgCandidate of pkgCandidates) {
+    if (pkgCandidate) {
+      const res = prepareBinary(pkgCandidate, 'ffmpeg');
+      if (res) {
+        cachedFfmpegPath = res;
+        return cachedFfmpegPath;
+      }
     }
   }
 
@@ -160,6 +193,26 @@ export function getFfprobePath() {
     if (res) {
       cachedFfprobePath = res;
       return cachedFfprobePath;
+    }
+  }
+
+  // 2. Package-resolved binaries (statically traced by Vercel NFT bundler)
+  const pkgCandidates = [
+    resolvePkgBinary('@ffprobe-installer/linux-x64', 'ffprobe'),
+    resolvePkgBinary('@ffprobe-installer/darwin-arm64', 'ffprobe'),
+    resolvePkgBinary('ffprobe-static', 'bin/linux/x64/ffprobe'),
+    resolvePkgBinary('ffprobe-static', 'bin/darwin/arm64/ffprobe'),
+    resolvePkgBinary('ffprobe-static', 'bin/darwin/x64/ffprobe'),
+    resolvePkgBinary('ffprobe-static', 'bin/win32/x64/ffprobe.exe')
+  ];
+
+  for (const pkgCandidate of pkgCandidates) {
+    if (pkgCandidate) {
+      const res = prepareBinary(pkgCandidate, 'ffprobe');
+      if (res) {
+        cachedFfprobePath = res;
+        return cachedFfprobePath;
+      }
     }
   }
 
