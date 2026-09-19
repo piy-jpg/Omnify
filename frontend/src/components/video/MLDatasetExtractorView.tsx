@@ -130,8 +130,19 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
       targetResolution: { width: pInfo.recommendedWidth, height: pInfo.recommendedHeight },
       aspectMode: pInfo.aspectMode,
       outputFormat: pInfo.outputFormat,
-      namingPrefix: preset === 'yolo' ? 'yolo_frame' : preset === 'lora_diffusion' ? 'lora_img' : 'frame',
-      datasetName: `${preset}_model_dataset`
+      namingPrefix: preset === 'yolo' ? 'yolo_frame' : preset === 'lora_diffusion' ? 'lora_img' : preset === 'opencv_tracking' ? 'seq_frame' : 'frame',
+      datasetName: `${preset}_model_dataset`,
+      loraTriggerWord: prev.loraTriggerWord || 'tok_subject'
+    }));
+  };
+
+  // Sync Class Names from input
+  const handleClassInputChange = (val: string) => {
+    setClassInputText(val);
+    const parsed = val.split(',').map(s => s.trim()).filter(Boolean);
+    setConfig(prev => ({
+      ...prev,
+      classNames: parsed.length > 0 ? parsed : ['object']
     }));
   };
 
@@ -228,6 +239,8 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
     return f.splitGroup === activeFilterTab;
   });
 
+  const activePresetInfo = ML_PRESETS[config.preset];
+
   return (
     <div className="space-y-6">
       
@@ -309,8 +322,8 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
         />
       )}
 
-      {/* 3. ML FRAMEWORK PRESETS */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      {/* 3. ML FRAMEWORK PRESETS CARDS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {(Object.keys(ML_PRESETS) as MLFrameworkPreset[]).map(presetKey => {
           const item = ML_PRESETS[presetKey];
           const isSelected = config.preset === presetKey;
@@ -319,218 +332,218 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
             <button
               key={presetKey}
               onClick={() => handlePresetSelect(presetKey)}
-              className={`p-3.5 rounded-2xl border text-left transition-all ${
+              className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between ${
                 isSelected
-                  ? 'border-purple-600 bg-purple-50/80 dark:bg-purple-950/60 shadow-xs'
-                  : 'border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-purple-300 dark:hover:border-purple-800'
+                  ? 'border-purple-600 bg-purple-50/90 dark:bg-purple-950/70 shadow-sm ring-2 ring-purple-500/20'
+                  : 'border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-purple-300 dark:hover:border-purple-800 hover:shadow-xs'
               }`}
             >
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                  {item.name.split(' ')[0]}
-                </span>
-                {isSelected && <Check className="w-3.5 h-3.5 text-purple-600 shrink-0" />}
+              <div>
+                <div className="flex items-center justify-between gap-1 mb-2">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                    {item.tag}
+                  </span>
+                  {isSelected && <Check className="w-4 h-4 text-purple-600 shrink-0" />}
+                </div>
+                
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white mb-1">
+                  {item.name}
+                </h4>
+
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
+                  {item.description}
+                </p>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-tight">
-                {item.description}
-              </p>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-purple-700 dark:text-purple-300">
+                <span>{item.recommendedWidth}×{item.recommendedHeight}</span>
+                <span className="uppercase">{item.outputFormat.split('/')[1]}</span>
+              </div>
             </button>
           );
         })}
       </div>
 
-      {/* 4. CONFIGURATION GRID */}
+      {/* 4. DYNAMIC FRAMEWORK CONFIGURATION & QUALITY PIPELINE */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* LEFT COLUMN: RESOLUTION & SAMPLING SETTINGS */}
+        {/* LEFT COLUMN: FRAMEWORK SPECIALIZED PARAMETERS & RESOLUTION */}
         <div className="lg:col-span-6 space-y-4">
           <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-purple-600" />
-              <span>1. Dataset Resolution & Sampling Rate</span>
-            </h3>
+            
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-purple-600" />
+                <span>1. {activePresetInfo.name} Framework Settings</span>
+              </h3>
+              <span className="text-[10px] font-mono font-bold text-purple-600 bg-purple-50 dark:bg-purple-950 px-2 py-0.5 rounded-full">
+                {config.preset.toUpperCase()}
+              </span>
+            </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                  Target Resolution (Width × Height)
-                </label>
-                <div className="flex items-center gap-2">
+            {/* Framework-Specific Controls */}
+            {config.preset === 'yolo' && (
+              <div className="p-3.5 rounded-2xl bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-900/50 space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-purple-600" />
+                    <span>YOLO Class Names (Comma Separated)</span>
+                  </label>
                   <input
-                    type="number"
-                    value={config.targetResolution.width}
-                    onChange={(e) => setConfig(prev => ({
-                      ...prev,
-                      targetResolution: { ...prev.targetResolution, width: parseInt(e.target.value) || 640 }
-                    }))}
-                    className="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                    type="text"
+                    value={classInputText}
+                    onChange={(e) => handleClassInputChange(e.target.value)}
+                    placeholder="person, vehicle, license_plate"
+                    className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 text-slate-900 dark:text-white font-mono"
                   />
-                  <span className="text-slate-400">×</span>
+                  <p className="text-[10px] text-purple-600 dark:text-purple-400">
+                    Generates <code>data.yaml</code> and <code>classes.txt</code> with classes: {config.classNames.join(', ')}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Quick Res:</span>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, targetResolution: { width: 640, height: 640 } }))}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${config.targetResolution.width === 640 ? 'bg-purple-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                  >
+                    640×640 (Standard)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, targetResolution: { width: 1280, height: 1280 } }))}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${config.targetResolution.width === 1280 ? 'bg-purple-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                  >
+                    1280×1280 (HD)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {config.preset === 'classification' && (
+              <div className="p-3.5 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-900/50 space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                    <FolderTree className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Primary Class / Category Subdirectory</span>
+                  </label>
                   <input
-                    type="number"
-                    value={config.targetResolution.height}
-                    onChange={(e) => setConfig(prev => ({
-                      ...prev,
-                      targetResolution: { ...prev.targetResolution, height: parseInt(e.target.value) || 640 }
-                    }))}
-                    className="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                    type="text"
+                    value={classInputText}
+                    onChange={(e) => handleClassInputChange(e.target.value)}
+                    placeholder="target_class"
+                    className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-slate-900 dark:text-white font-mono"
                   />
+                  <p className="text-[10px] text-indigo-600 dark:text-indigo-400">
+                    Outputs images into <code>train/{config.classNames[0] || 'class_1'}/</code> with PyTorch <code>dataset.py</code> loader.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Quick Res:</span>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, targetResolution: { width: 224, height: 224 } }))}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${config.targetResolution.width === 224 ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                  >
+                    224×224 (ViT/ResNet)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, targetResolution: { width: 384, height: 384 } }))}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${config.targetResolution.width === 384 ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                  >
+                    384×384 (Large ViT)
+                  </button>
                 </div>
               </div>
+            )}
 
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                  Aspect Ratio Fit Mode
-                </label>
-                <select
-                  value={config.aspectMode}
-                  onChange={(e) => setConfig(prev => ({ ...prev, aspectMode: e.target.value as any }))}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                >
-                  <option value="pad_square">Pad Square / Letterbox (YOLO Recommended)</option>
-                  <option value="center_crop">Center Crop Square</option>
-                  <option value="original">Preserve Original Aspect</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                  Sampling Strategy
-                </label>
-                <select
-                  value={config.samplingMethod}
-                  onChange={(e) => setConfig(prev => ({ ...prev, samplingMethod: e.target.value as any }))}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                >
-                  <option value="interval">Time Interval (Seconds)</option>
-                  <option value="fps">Sample Rate (FPS)</option>
-                  <option value="total_frames">Exact Total Frame Count</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                  {config.samplingMethod === 'interval' ? 'Interval (Seconds)' : config.samplingMethod === 'fps' ? 'Frames Per Second' : 'Target Frame Count'}
-                </label>
-                <input
-                  type="number"
-                  step={0.1}
-                  value={config.samplingValue}
-                  onChange={(e) => setConfig(prev => ({ ...prev, samplingValue: parseFloat(e.target.value) || 1 }))}
-                  className="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: AI QUALITY FILTERS & SPLIT PROPORTIONS */}
-        <div className="lg:col-span-6 space-y-4">
-          <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-purple-600" />
-              <span>2. Quality Cleaning & Train/Val Split</span>
-            </h3>
-
-            <div className="space-y-2.5">
-              <label className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-bold text-slate-900 dark:text-white">
-                    Laplacian Blur Filtering
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    Automatically discard motion-blurred or out-of-focus frames
-                  </div>
+            {config.preset === 'lora_diffusion' && (
+              <div className="p-3.5 rounded-2xl bg-pink-50/50 dark:bg-pink-950/30 border border-pink-200/60 dark:border-pink-900/50 space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-pink-900 dark:text-pink-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-pink-600" />
+                    <span>LoRA Training Trigger Word</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={config.loraTriggerWord}
+                    onChange={(e) => setConfig(prev => ({ ...prev, loraTriggerWord: e.target.value }))}
+                    placeholder="tok_subject"
+                    className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-pink-200 dark:border-pink-800 text-slate-900 dark:text-white font-mono"
+                  />
+                  <p className="text-[10px] text-pink-600 dark:text-pink-400">
+                    Each image will be paired with a corresponding <code>.txt</code> prompt caption containing <code>{config.loraTriggerWord}</code>.
+                  </p>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={config.filterBlur}
-                  onChange={(e) => setConfig(prev => ({ ...prev, filterBlur: e.target.checked }))}
-                  className="rounded text-purple-600 accent-purple-600 w-4 h-4"
-                />
-              </label>
 
-              <label className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-bold text-slate-900 dark:text-white">
-                    Duplicate Frame Suppression
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    Eliminate consecutive near-identical frames to prevent model overfitting
-                  </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Quick Res:</span>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, targetResolution: { width: 512, height: 512 } }))}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${config.targetResolution.width === 512 ? 'bg-pink-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                  >
+                    512×512 (SD 1.5)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, targetResolution: { width: 768, height: 768 } }))}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${config.targetResolution.width === 768 ? 'bg-pink-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                  >
+                    768×768 (SD 2.1)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, targetResolution: { width: 1024, height: 1024 } }))}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${config.targetResolution.width === 1024 ? 'bg-pink-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                  >
+                    1024×1024 (SDXL)
+                  </button>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={config.deduplicate}
-                  onChange={(e) => setConfig(prev => ({ ...prev, deduplicate: e.target.checked }))}
-                  className="rounded text-purple-600 accent-purple-600 w-4 h-4"
-                />
-              </label>
-            </div>
-
-            {/* Train / Val / Test Split Controls */}
-            <div className="space-y-1.5 pt-1">
-              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                <span>Train / Val / Test Distribution</span>
-                <span className="font-mono text-purple-600">
-                  {config.splitRatio.train}% Train • {config.splitRatio.val}% Val • {config.splitRatio.test}% Test
-                </span>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConfig(prev => ({ ...prev, splitRatio: { train: 80, val: 10, test: 10 } }))}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-purple-100 dark:hover:bg-purple-950 text-slate-700 dark:text-slate-300"
-                >
-                  80/10/10
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfig(prev => ({ ...prev, splitRatio: { train: 70, val: 20, test: 10 } }))}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-purple-100 dark:hover:bg-purple-950 text-slate-700 dark:text-slate-300"
-                >
-                  70/20/10
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfig(prev => ({ ...prev, splitRatio: { train: 100, val: 0, test: 0 } }))}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-purple-100 dark:hover:bg-purple-950 text-slate-700 dark:text-slate-300"
-                >
-                  100% All Train
-                </button>
-              </div>
-            </div>
+            )}
 
-            {/* Trigger Button */}
-            <button
-              onClick={handleStartExtraction}
-              disabled={isExtracting || isLoadingDemo}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
-            >
-              {isExtracting ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Extracting AI Training Frames...</span>
-                </>
-              ) : isLoadingDemo ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Loading Sample Video...</span>
-                </>
-              ) : !videoFile ? (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span>Load Sample Video & Extract ({config.preset.toUpperCase()})</span>
-                </>
-              ) : (
-                <>
-                  <BrainCircuit className="w-4 h-4" />
-                  <span>Generate ML Dataset ({config.preset.toUpperCase()})</span>
-                </>
-              )}
-            </button>
+            {config.preset === 'opencv_tracking' && (
+              <div className="p-3.5 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/50 space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                    <FileCode className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Sequence Frame Prefix</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={config.namingPrefix}
+                    onChange={(e) => setConfig(prev => ({ ...prev, namingPrefix: e.target.value }))}
+                    placeholder="seq_frame"
+                    className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 text-slate-900 dark:text-white font-mono"
+                  />
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                    Outputs continuous sequential frames + <code>sequence_manifest.json</code> + <code>opencv_loader.py</code>.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Quick Res:</span>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, targetResolution: { width: 1280, height: 720 }, aspectMode: 'original' }))}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${config.targetResolution.width === 1280 ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                  >
+                    1280×720 (HD)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev, targetResolution: { width: 1920, height: 1080 }, aspectMode: 'original' }))}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${config.targetResolution.width === 1920 ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}
+                  >
+                    1920×1080 (FHD)
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

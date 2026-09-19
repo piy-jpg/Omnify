@@ -62,6 +62,8 @@ export interface MLDatasetProgress {
 
 export const ML_PRESETS: Record<MLFrameworkPreset, {
   name: string;
+  tag: string;
+  shortLabel: string;
   description: string;
   recommendedWidth: number;
   recommendedHeight: number;
@@ -69,40 +71,50 @@ export const ML_PRESETS: Record<MLFrameworkPreset, {
   outputFormat: MLDatasetConfig['outputFormat'];
 }> = {
   yolo: {
-    name: 'YOLOv8 / YOLOv11 Object Detection',
-    description: 'Generates standardized square 640x640 datasets with data.yaml, images/ and labels/ folders ready for Ultralytics YOLO training.',
+    name: 'YOLOv8 / YOLOv11',
+    tag: 'Object Detection',
+    shortLabel: 'YOLOv8',
+    description: 'Standardized 640x640 square datasets with data.yaml, classes.txt, images/ and labels/ folders.',
     recommendedWidth: 640,
     recommendedHeight: 640,
     aspectMode: 'pad_square',
     outputFormat: 'image/jpeg'
   },
   classification: {
-    name: 'PyTorch / TensorFlow Classification & ViT',
-    description: 'Creates normalized 224x224 or 384x384 image tensors with train/val/test class directory structure.',
+    name: 'PyTorch / ViT',
+    tag: 'Classification',
+    shortLabel: 'PyTorch / ViT',
+    description: 'Normalized 224x224 / 384x384 image tensors sorted into train/val/test class directories with dataset.py.',
     recommendedWidth: 224,
     recommendedHeight: 224,
     aspectMode: 'center_crop',
     outputFormat: 'image/jpeg'
   },
   lora_diffusion: {
-    name: 'Stable Diffusion / LoRA Fine-Tuning',
-    description: 'Generates high-res 512x512 / 1024x1024 frames with accompanying .txt prompt caption metadata files for trigger word training.',
+    name: 'Stable Diffusion (LoRA)',
+    tag: 'Generative AI',
+    shortLabel: 'Stable Diffusion / LoRA',
+    description: 'High-res 512x512 / 1024x1024 frames with paired .txt prompt caption files for trigger word fine-tuning.',
     recommendedWidth: 512,
     recommendedHeight: 512,
     aspectMode: 'center_crop',
     outputFormat: 'image/png'
   },
   opencv_tracking: {
-    name: 'OpenCV / Tracking & Optical Flow',
-    description: 'Extracts dense sequential frames at original aspect ratio with sequence timestamp indices and manifest JSON.',
+    name: 'OpenCV Tracking',
+    tag: 'Computer Vision',
+    shortLabel: 'OpenCV / Tracking',
+    description: 'Dense continuous frames at original aspect ratio with sequence manifest.json and timestamps.',
     recommendedWidth: 1280,
     recommendedHeight: 720,
     aspectMode: 'original',
     outputFormat: 'image/jpeg'
   },
   custom: {
-    name: 'Custom Machine Learning Pipeline',
-    description: 'Full manual control over frame resolution, train/val split proportions, blur filtering, and file naming.',
+    name: 'Custom Pipeline',
+    tag: 'Manual Config',
+    shortLabel: 'Custom',
+    description: 'Full manual control over frame resolution, train/val split ratios, blur filtering, and naming.',
     recommendedWidth: 640,
     recommendedHeight: 640,
     aspectMode: 'pad_square',
@@ -400,23 +412,45 @@ export async function bundleAndDownloadMLDataset(
 
   // 1. YOLO Framework Structure
   if (config.preset === 'yolo') {
-    const yamlContent = `# ConvertPro YOLO Training Configuration
-path: ./dataset
+    const classList = config.classNames && config.classNames.length > 0 ? config.classNames : ['object'];
+    const yamlContent = `# ConvertPro Ultralytics YOLO Training Configuration
+path: ./
 train: images/train
 val: images/val
 test: images/test
 
 # Classes
-nc: ${config.classNames.length || 1}
-names: [${(config.classNames.length > 0 ? config.classNames : ['object']).map(n => `'${n}'`).join(', ')}]
+nc: ${classList.length}
+names: [${classList.map(n => `'${n}'`).join(', ')}]
 
-# Metadata
-generator: "ConvertPro Universal ML Dataset Studio"
+# Generation Metadata
+generator: "ConvertPro AI/ML Dataset Studio"
 source_video: "${videoFileName}"
 total_samples: ${frames.length}
 `;
     zip.file('data.yaml', yamlContent);
-    zip.file('classes.txt', (config.classNames.length > 0 ? config.classNames : ['object']).join('\n'));
+    zip.file('classes.txt', classList.join('\n'));
+
+    // Python training starter script
+    const pyScript = `# Ultralytics YOLO Training Starter Script
+# Requirements: pip install ultralytics
+from ultralytics import YOLO
+
+if __name__ == '__main__':
+    # Load a pretrained YOLOv8/YOLOv11 model
+    model = YOLO('yolov8n.pt')
+
+    # Train on your generated dataset
+    results = model.train(
+        data='data.yaml',
+        epochs=50,
+        imgsz=${config.targetResolution.width || 640},
+        batch=16,
+        name='${datasetName}'
+    )
+    print("Training finished! Results saved to runs/detect/")
+`;
+    zip.file('train_yolo.py', pyScript);
 
     // Create folders
     const imgTrain = zip.folder('images/train');
@@ -432,7 +466,41 @@ total_samples: ${frames.length}
       else imgTest?.file(f.fileName, f.blob);
     }
   } 
-  // 2. LoRA / Diffusion Structure
+  // 2. PyTorch / Classification Framework Structure
+  else if (config.preset === 'classification') {
+    const classList = config.classNames && config.classNames.length > 0 ? config.classNames : ['default_class'];
+    const primaryClass = classList[0];
+
+    const pyScript = `# PyTorch Dataset Loader Starter Script
+# Requirements: pip install torch torchvision
+import torch
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+
+def get_dataloaders(batch_size=32):
+    transform = transforms.Compose([
+        transforms.Resize((${config.targetResolution.height}, ${config.targetResolution.width})),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    train_dataset = datasets.ImageFolder(root='train', transform=transform)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    
+    print(f"Loaded {len(train_dataset)} training samples across classes: {train_dataset.classes}")
+    return train_loader
+
+if __name__ == '__main__':
+    get_dataloaders()
+`;
+    zip.file('dataset.py', pyScript);
+
+    for (const f of frames) {
+      const targetFolder = zip.folder(`${f.splitGroup}/${primaryClass}`);
+      targetFolder?.file(f.fileName, f.blob);
+    }
+  }
+  // 3. LoRA / Stable Diffusion Structure
   else if (config.preset === 'lora_diffusion') {
     const imgFolder = zip.folder('dataset');
     for (const f of frames) {
@@ -441,8 +509,77 @@ total_samples: ${frames.length}
         imgFolder?.file(f.captionFileName, f.captionContent);
       }
     }
+
+    const loraCommand = `# Kohya_ss / Diffusers LoRA Fine-Tuning Guide
+# Trigger Word: ${config.loraTriggerWord || 'tok_subject'}
+# Resolution: ${config.targetResolution.width}x${config.targetResolution.height}
+# Number of training images: ${frames.length}
+
+accelerate launch --num_cpu_threads_per_process=2 \\
+  train_network.py \\
+  --pretrained_model_name_or_path="runwayml/stable-diffusion-v1-5" \\
+  --train_data_dir="./dataset" \\
+  --output_dir="./output" \\
+  --resolution="${config.targetResolution.width},${config.targetResolution.height}" \\
+  --network_module=networks.lora \\
+  --learning_rate=1e-4 \\
+  --network_dim=32 \\
+  --output_name="${datasetName}_lora"
+`;
+    zip.file('train_lora.sh', loraCommand);
   } 
-  // 3. Classification / Custom Standard Structure
+  // 4. OpenCV Tracking & Optical Flow Structure
+  else if (config.preset === 'opencv_tracking') {
+    const seqFolder = zip.folder('sequence');
+    const manifestItems = [];
+
+    for (let i = 0; i < frames.length; i++) {
+      const f = frames[i];
+      seqFolder?.file(f.fileName, f.blob);
+      manifestItems.push({
+        index: i + 1,
+        timestamp_seconds: f.timestamp,
+        timecode: f.formattedTime,
+        file: f.fileName,
+        width: f.width,
+        height: f.height,
+        sharpness_score: f.sharpness
+      });
+    }
+
+    zip.file('sequence_manifest.json', JSON.stringify({
+      video_source: videoFileName,
+      frame_count: frames.length,
+      resolution: `${config.targetResolution.width}x${config.targetResolution.height}`,
+      frames: manifestItems
+    }, null, 2));
+
+    const cvPyScript = `# OpenCV Sequence Loader & Optical Flow Starter
+import cv2
+import json
+import glob
+
+# Load manifest
+with open('sequence_manifest.json', 'r') as f:
+    manifest = json.load(f)
+
+print(f"Loaded sequence with {manifest['frame_count']} frames.")
+
+# Read frames sequentially
+frame_files = sorted(glob.glob('sequence/*.jpg') + glob.glob('sequence/*.png'))
+for file in frame_files:
+    frame = cv2.imread(file)
+    if frame is None:
+        continue
+    cv2.imshow('ConvertPro OpenCV Stream', frame)
+    if cv2.waitKey(30) & 0xFF == ord('q'):
+        break
+
+cv2.destroyAllWindows()
+`;
+    zip.file('opencv_loader.py', cvPyScript);
+  }
+  // 5. Custom Pipeline Structure
   else {
     const trainFolder = zip.folder('train');
     const valFolder = zip.folder('val');
@@ -458,6 +595,7 @@ total_samples: ${frames.length}
   // Common metadata descriptor JSON
   const metadataJson = {
     dataset_name: datasetName,
+    framework: config.preset,
     created_at: new Date().toISOString(),
     source_video: videoFileName,
     target_resolution: `${config.targetResolution.width}x${config.targetResolution.height}`,
@@ -469,7 +607,8 @@ total_samples: ${frames.length}
       test: frames.filter(f => f.splitGroup === 'test').length
     },
     format: config.outputFormat,
-    classes: config.classNames.length > 0 ? config.classNames : ['object']
+    classes: config.classNames && config.classNames.length > 0 ? config.classNames : ['object'],
+    lora_trigger_word: config.preset === 'lora_diffusion' ? config.loraTriggerWord : undefined
   };
   zip.file('dataset_info.json', JSON.stringify(metadataJson, null, 2));
 
