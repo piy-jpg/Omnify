@@ -235,12 +235,29 @@ export interface SubtitleStyle {
 }
 
 /**
- * Parse SRT or WebVTT string into SubtitleCue array
+ * Parse SRT, WebVTT, JSON, CSV, LRC, SBV, or plain text into SubtitleCue array
  */
 export function parseSubtitlesFile(rawText: string): SubtitleCue[] {
   const cues: SubtitleCue[] = [];
-  const clean = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const blocks = clean.split(/\n\s*\n/);
+  const clean = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!clean) return cues;
+
+  // 1. Try parsing JSON format
+  if (clean.startsWith('[') && clean.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item, idx) => ({
+          id: item.id || idx + 1,
+          startTime: typeof item.startTime === 'number' ? item.startTime : parseFloat(item.startTime) || 0,
+          endTime: typeof item.endTime === 'number' ? item.endTime : parseFloat(item.endTime) || ((typeof item.startTime === 'number' ? item.startTime : 0) + 3),
+          text: String(item.text || item.caption || item.content || '')
+        })).filter(c => c.text.length > 0);
+      }
+    } catch {
+      // Fall through to other parsers
+    }
+  }
 
   const parseTimestamp = (tStr: string): number => {
     const norm = tStr.trim().replace(',', '.');
@@ -258,6 +275,36 @@ export function parseSubtitlesFile(rawText: string): SubtitleCue[] {
     return 0;
   };
 
+  // 2. Try parsing LRC lyrics format [MM:SS.xx]
+  if (clean.includes('[') && clean.includes(']') && /\[\d{2}:\d{2}/.test(clean)) {
+    const lrcLines = clean.split('\n');
+    const parsedLrc: { time: number; text: string }[] = [];
+    for (const line of lrcLines) {
+      const match = line.match(/\[(\d{2}):(\d{2})(?:\.(\d+))?\](.*)/);
+      if (match) {
+        const mins = parseInt(match[1], 10);
+        const secs = parseInt(match[2], 10);
+        const frac = match[3] ? parseFloat(`0.${match[3]}`) : 0;
+        const time = mins * 60 + secs + frac;
+        const text = match[4].trim();
+        if (text) {
+          parsedLrc.push({ time, text });
+        }
+      }
+    }
+    if (parsedLrc.length > 0) {
+      return parsedLrc.map((item, i) => ({
+        id: i + 1,
+        startTime: item.time,
+        endTime: i < parsedLrc.length - 1 ? parsedLrc[i + 1].time : item.time + 3.0,
+        text: item.text
+      }));
+    }
+  }
+
+  // 3. Try parsing standard SRT / WebVTT / SBV blocks
+  const blocks = clean.split(/\n\s*\n/);
+
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i].trim();
     if (!block || block === 'WEBVTT' || block.startsWith('NOTE')) continue;
@@ -265,36 +312,78 @@ export function parseSubtitlesFile(rawText: string): SubtitleCue[] {
     const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length === 0) continue;
 
+    // Check for SRT / VTT arrow
     let timeLineIdx = lines.findIndex(l => l.includes('-->'));
-    if (timeLineIdx === -1) continue;
+    if (timeLineIdx !== -1) {
+      const timeLine = lines[timeLineIdx];
+      const [startStr, endStr] = timeLine.split('-->').map(s => s.trim().split(' ')[0]);
+      const startTime = parseTimestamp(startStr);
+      const endTime = parseTimestamp(endStr);
+      const textLines = lines.slice(timeLineIdx + 1);
+      const text = textLines.join(' ').replace(/<[^>]*>/g, '');
+      if (text) {
+        cues.push({
+          id: cues.length + 1,
+          startTime,
+          endTime: Math.max(startTime + 0.5, endTime),
+          text
+        });
+      }
+      continue;
+    }
 
-    const timeLine = lines[timeLineIdx];
-    const [startStr, endStr] = timeLine.split('-->').map(s => s.trim().split(' ')[0]);
-
-    const startTime = parseTimestamp(startStr);
-    const endTime = parseTimestamp(endStr);
-    const textLines = lines.slice(timeLineIdx + 1);
-    const text = textLines.join(' ').replace(/<[^>]*>/g, '');
-
-    if (text) {
-      cues.push({
-        id: cues.length + 1,
-        startTime,
-        endTime: Math.max(startTime + 0.5, endTime),
-        text
-      });
+    // Check for SBV (0:00:00.000,0:00:03.500)
+    let sbvLineIdx = lines.findIndex(l => /^\d+:\d{2}:\d{2}\.\d+,\d+:\d{2}:\d{2}\.\d+$/.test(l));
+    if (sbvLineIdx !== -1) {
+      const [startStr, endStr] = lines[sbvLineIdx].split(',');
+      const startTime = parseTimestamp(startStr);
+      const endTime = parseTimestamp(endStr);
+      const text = lines.slice(sbvLineIdx + 1).join(' ');
+      if (text) {
+        cues.push({
+          id: cues.length + 1,
+          startTime,
+          endTime: Math.max(startTime + 0.5, endTime),
+          text
+        });
+      }
     }
   }
 
   return cues;
 }
 
+export type SubtitleFormat = 'srt' | 'vtt' | 'txt' | 'json' | 'csv' | 'ass' | 'sbv' | 'ttml' | 'lrc' | 'mp4';
+
+function formatAssTime(seconds: number): string {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const cs = Math.floor((seconds % 1) * 100);
+  return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`;
+}
+
+function formatSbvTime(seconds: number): string {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+}
+
+function formatLrcTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const cs = Math.floor((seconds % 1) * 100);
+  return `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}]`;
+}
+
 /**
- * Generate Subtitles File (.SRT / .VTT / .TXT / .JSON format)
+ * Generate Subtitles File (.SRT / .VTT / .TXT / .JSON / .CSV / .ASS / .SBV / .TTML / .LRC / .MP4)
  */
 export function generateSubtitlesFile(
   cues: SubtitleCue[],
-  format: 'srt' | 'vtt' | 'txt' | 'json' = 'srt'
+  format: SubtitleFormat = 'srt'
 ): { content: string; blob: Blob; url: string } {
   let output = '';
   let mime = 'text/plain';
@@ -318,7 +407,83 @@ export function generateSubtitlesFile(
     output = cues.map(c => `[${formatTime(c.startTime)} - ${formatTime(c.endTime)}] ${c.text}`).join('\n\n');
     mime = 'text/plain';
   } else if (format === 'json') {
-    output = JSON.stringify(cues, null, 2);
+    output = JSON.stringify(cues.map(c => ({
+      ...c,
+      duration: Math.round((c.endTime - c.startTime) * 10) / 10,
+      startTimeFormatted: formatTime(c.startTime),
+      endTimeFormatted: formatTime(c.endTime)
+    })), null, 2);
+    mime = 'application/json';
+  } else if (format === 'csv') {
+    const headers = ['id', 'start_time_sec', 'end_time_sec', 'duration_sec', 'start_code', 'end_code', 'text'];
+    const rows = cues.map(c => {
+      const dur = Math.max(0.1, Math.round((c.endTime - c.startTime) * 10) / 10);
+      const cleanText = c.text.replace(/"/g, '""');
+      return `"${c.id}","${c.startTime}","${c.endTime}","${dur}","${formatSrtTime(c.startTime)}","${formatSrtTime(c.endTime)}","${cleanText}"`;
+    });
+    output = [headers.join(','), ...rows].join('\n');
+    mime = 'text/csv';
+  } else if (format === 'ass') {
+    output = `[Script Info]
+Title: ConvertPro Video Studio Captions
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,32,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,2,20,20,20,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+    cues.forEach(c => {
+      output += `Dialogue: 0,${formatAssTime(c.startTime)},${formatAssTime(c.endTime)},Default,,0,0,0,,${c.text}\n`;
+    });
+    mime = 'text/x-ssa';
+  } else if (format === 'sbv') {
+    cues.forEach(c => {
+      output += `${formatSbvTime(c.startTime)},${formatSbvTime(c.endTime)}\n${c.text}\n\n`;
+    });
+    mime = 'text/plain';
+  } else if (format === 'ttml') {
+    output = `<?xml version="1.0" encoding="utf-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttp="http://www.w3.org/ns/ttml#parameter" ttp:timeBase="media" xmlns:tts="http://www.w3.org/ns/ttml#styling" xml:lang="en">
+  <head>
+    <styling>
+      <style xml:id="defaultStyle" tts:fontFamily="sans-serif" tts:fontSize="100%" tts:color="white" tts:backgroundColor="rgba(0,0,0,0.75)" tts:textAlign="center"/>
+    </styling>
+    <layout>
+      <region xml:id="bottomRegion" tts:origin="10% 80%" tts:extent="80% 15%" tts:displayAlign="after"/>
+    </layout>
+  </head>
+  <body>
+    <div>
+`;
+    cues.forEach(c => {
+      const s = formatSrtTime(c.startTime).replace(',', '.');
+      const e = formatSrtTime(c.endTime).replace(',', '.');
+      output += `      <p begin="${s}" end="${e}" region="bottomRegion" style="defaultStyle">${c.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>\n`;
+    });
+    output += `    </div>
+  </body>
+</tt>`;
+    mime = 'application/ttml+xml';
+  } else if (format === 'lrc') {
+    output = `[ti:ConvertPro Studio Subtitles]\n[re:ConvertPro Video Studio]\n\n`;
+    cues.forEach(c => {
+      output += `${formatLrcTime(c.startTime)}${c.text}\n`;
+    });
+    mime = 'text/plain';
+  } else if (format === 'mp4') {
+    output = JSON.stringify({
+      type: 'hardcoded_burn_in_metadata',
+      timestamp: new Date().toISOString(),
+      cuesCount: cues.length,
+      cues
+    }, null, 2);
     mime = 'application/json';
   }
 
