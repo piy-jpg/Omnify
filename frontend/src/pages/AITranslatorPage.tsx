@@ -558,9 +558,27 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
+  // Helper to get best matching voice for a given locale
+  const getBestVoice = (locale: string): SpeechSynthesisVoice | null => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return null;
+    const langPrefix = locale.split('-')[0].toLowerCase();
+    
+    // 1. Exact locale match (e.g. hi-IN or en-US)
+    const exact = voices.find(v => v.lang.toLowerCase() === locale.toLowerCase() || v.lang.replace('_', '-').toLowerCase() === locale.toLowerCase());
+    if (exact) return exact;
+
+    // 2. Language prefix match (e.g. hi or en)
+    const prefixMatch = voices.find(v => v.lang.toLowerCase().startsWith(langPrefix));
+    if (prefixMatch) return prefixMatch;
+
+    return null;
+  };
+
   // Text to Speech for Source Text
   const handleSpeakSource = () => {
-    if (!sourceText.trim() || typeof window === 'undefined' || !window.speechSynthesis) return;
+    if (!sourceText.trim() || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
     if (isSpeakingSource) {
       window.speechSynthesis.cancel();
@@ -568,24 +586,44 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
       return;
     }
 
-    window.speechSynthesis.cancel();
-    setIsSpeakingTarget(false);
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      setIsSpeakingTarget(false);
 
-    const utterance = new SpeechSynthesisUtterance(sourceText);
-    const langCode = sourceLang.code === 'auto' 
-      ? (detectedLangName ? (SUPPORTED_LANGUAGES.find(l => l.name.toLowerCase() === detectedLangName.toLowerCase())?.code || 'en') : 'en')
-      : sourceLang.code;
-    utterance.lang = getSpeechRecognitionLocale(langCode);
-    utterance.onend = () => setIsSpeakingSource(false);
-    utterance.onerror = () => setIsSpeakingSource(false);
+      const utterance = new SpeechSynthesisUtterance(sourceText);
+      const langCode = sourceLang.code === 'auto' 
+        ? (detectedLangName ? (SUPPORTED_LANGUAGES.find(l => l.name.toLowerCase() === detectedLangName.toLowerCase())?.code || 'en') : 'en')
+        : sourceLang.code;
+      const locale = getSpeechRecognitionLocale(langCode);
+      utterance.lang = locale;
 
-    setIsSpeakingSource(true);
-    window.speechSynthesis.speak(utterance);
+      const matchingVoice = getBestVoice(locale);
+      if (matchingVoice) {
+        utterance.voice = matchingVoice;
+      }
+
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+
+      utterance.onstart = () => setIsSpeakingSource(true);
+      utterance.onend = () => setIsSpeakingSource(false);
+      utterance.onerror = (e) => {
+        console.warn('Speech synthesis source error:', e);
+        setIsSpeakingSource(false);
+      };
+
+      setIsSpeakingSource(true);
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.error('Speech synthesis error (Source):', err);
+      setIsSpeakingSource(false);
+    }
   };
 
   // Text to Speech for Translated Output
   const handleSpeakTarget = () => {
-    if (!translatedText.trim() || typeof window === 'undefined' || !window.speechSynthesis) return;
+    if (!translatedText.trim() || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
     if (isSpeakingTarget) {
       window.speechSynthesis.cancel();
@@ -593,16 +631,36 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
       return;
     }
 
-    window.speechSynthesis.cancel();
-    setIsSpeakingSource(false);
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      setIsSpeakingSource(false);
 
-    const utterance = new SpeechSynthesisUtterance(translatedText);
-    utterance.lang = getSpeechRecognitionLocale(targetLang.code);
-    utterance.onend = () => setIsSpeakingTarget(false);
-    utterance.onerror = () => setIsSpeakingTarget(false);
+      const utterance = new SpeechSynthesisUtterance(translatedText);
+      const locale = getSpeechRecognitionLocale(targetLang.code);
+      utterance.lang = locale;
 
-    setIsSpeakingTarget(true);
-    window.speechSynthesis.speak(utterance);
+      const matchingVoice = getBestVoice(locale);
+      if (matchingVoice) {
+        utterance.voice = matchingVoice;
+      }
+
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+
+      utterance.onstart = () => setIsSpeakingTarget(true);
+      utterance.onend = () => setIsSpeakingTarget(false);
+      utterance.onerror = (e) => {
+        console.warn('Speech synthesis target error:', e);
+        setIsSpeakingTarget(false);
+      };
+
+      setIsSpeakingTarget(true);
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.error('Speech synthesis error (Target):', err);
+      setIsSpeakingTarget(false);
+    }
   };
 
   const handleSpeak = handleSpeakTarget;
@@ -819,22 +877,21 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
               <div className="flex items-center justify-between p-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-xs font-bold text-slate-500">
                 <div className="flex items-center gap-2">
                   <span>Source Text ({sourceLang.name})</span>
-                  {sourceText.trim() && (
-                    <button
-                      type="button"
-                      onClick={handleSpeakSource}
-                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer ${
-                        isSpeakingSource
-                          ? 'bg-purple-600 text-white animate-pulse shadow-xs'
-                          : 'text-slate-500 hover:text-purple-600 hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }`}
-                      title={isSpeakingSource ? 'Stop playback' : `Listen to ${sourceLang.name} source text`}
-                      aria-label="Listen to source text"
-                    >
-                      {isSpeakingSource ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5" />}
-                      <span>{isSpeakingSource ? 'Speaking...' : 'Listen'}</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={handleSpeakSource}
+                    disabled={!sourceText.trim()}
+                    className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isSpeakingSource
+                        ? 'bg-purple-600 text-white animate-pulse shadow-xs'
+                        : 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 border border-purple-200/60 dark:border-purple-800/60'
+                    }`}
+                    title={isSpeakingSource ? 'Stop playback' : sourceText.trim() ? `Listen to ${sourceLang.name} source text` : 'Enter text to listen'}
+                    aria-label="Listen to source text"
+                  >
+                    {isSpeakingSource ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
+                    <span>{isSpeakingSource ? 'Speaking...' : 'Listen'}</span>
+                  </button>
                 </div>
 
                 <div className="flex items-center gap-2 text-slate-400 font-mono text-[11px]">
@@ -900,7 +957,7 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                     title={isSpeakingSource ? 'Stop playback' : `Listen to ${sourceLang.name} text`}
                     aria-label="Listen to source text"
                   >
-                    {isSpeakingSource ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-purple-500" />}
+                    {isSpeakingSource ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5 text-purple-500" />}
                     <span>{isSpeakingSource ? 'Stop' : 'Listen'}</span>
                   </button>
 
@@ -931,22 +988,21 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                     Translated Result ({targetLang.name})
                   </span>
-                  {translatedText.trim() && (
-                    <button
-                      type="button"
-                      onClick={handleSpeakTarget}
-                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer ${
-                        isSpeakingTarget
-                          ? 'bg-purple-600 text-white animate-pulse shadow-xs'
-                          : 'text-purple-700 dark:text-purple-300 hover:bg-purple-100/80 dark:hover:bg-purple-900/60'
-                      }`}
-                      title={isSpeakingTarget ? 'Stop playback' : `Listen to ${targetLang.name} translation`}
-                      aria-label="Listen to translated text"
-                    >
-                      {isSpeakingTarget ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5" />}
-                      <span>{isSpeakingTarget ? 'Speaking...' : 'Listen'}</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={handleSpeakTarget}
+                    disabled={!translatedText.trim()}
+                    className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isSpeakingTarget
+                        ? 'bg-purple-600 text-white animate-pulse shadow-xs'
+                        : 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 border border-purple-200/60 dark:border-purple-800/60'
+                    }`}
+                    title={isSpeakingTarget ? 'Stop playback' : translatedText.trim() ? `Listen to ${targetLang.name} translation` : 'Translate text to listen'}
+                    aria-label="Listen to translated text"
+                  >
+                    {isSpeakingTarget ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
+                    <span>{isSpeakingTarget ? 'Speaking...' : 'Listen'}</span>
+                  </button>
                 </div>
 
                 <div className="flex items-center gap-2 text-slate-400 font-mono text-[11px]">
