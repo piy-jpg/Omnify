@@ -578,21 +578,51 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
   };
 
   // Helper to get best matching voice for a given locale
-  const getBestVoice = (locale: string): SpeechSynthesisVoice | null => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
-    const voices = window.speechSynthesis.getVoices();
+  const getBestVoice = (voices: SpeechSynthesisVoice[], locale: string): SpeechSynthesisVoice | null => {
     if (!voices || voices.length === 0) return null;
     const langPrefix = locale.split('-')[0].toLowerCase();
-    
-    // 1. Exact locale match (e.g. hi-IN or en-US)
     const exact = voices.find(v => v.lang.toLowerCase() === locale.toLowerCase() || v.lang.replace('_', '-').toLowerCase() === locale.toLowerCase());
     if (exact) return exact;
-
-    // 2. Language prefix match (e.g. hi or en)
     const prefixMatch = voices.find(v => v.lang.toLowerCase().startsWith(langPrefix));
     if (prefixMatch) return prefixMatch;
-
     return null;
+  };
+
+  // Core speak function — handles Safari async voice loading
+  const speakText = (text: string, locale: string, onStart: () => void, onDone: () => void) => {
+    if (!text.trim()) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    window.speechSynthesis.cancel();
+
+    const doSpeak = () => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = locale;
+      const voices = window.speechSynthesis.getVoices();
+      const voice = getBestVoice(voices, locale);
+      if (voice) utterance.voice = voice;
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+      utterance.onstart = onStart;
+      utterance.onend = onDone;
+      utterance.onerror = (e) => {
+        console.warn('Speech synthesis error:', e);
+        onDone();
+      };
+      onStart();
+      window.speechSynthesis.speak(utterance);
+    };
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices && voices.length > 0) {
+      doSpeak();
+    } else {
+      // Safari: voices load asynchronously — wait for them
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        doSpeak();
+      };
+    }
   };
 
   // Text to Speech for Source Text
@@ -602,42 +632,22 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     if (isSpeakingSource) {
       window.speechSynthesis.cancel();
       setIsSpeakingSource(false);
+      setIsSpeakingTarget(false);
       return;
     }
 
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-      setIsSpeakingTarget(false);
+    setIsSpeakingTarget(false);
+    const langCode = sourceLang.code === 'auto'
+      ? (detectedLangName ? (SUPPORTED_LANGUAGES.find(l => l.name.toLowerCase() === detectedLangName.toLowerCase())?.code || 'en') : 'en')
+      : sourceLang.code;
+    const locale = getSpeechRecognitionLocale(langCode);
 
-      const utterance = new SpeechSynthesisUtterance(sourceText);
-      const langCode = sourceLang.code === 'auto' 
-        ? (detectedLangName ? (SUPPORTED_LANGUAGES.find(l => l.name.toLowerCase() === detectedLangName.toLowerCase())?.code || 'en') : 'en')
-        : sourceLang.code;
-      const locale = getSpeechRecognitionLocale(langCode);
-      utterance.lang = locale;
-
-      const matchingVoice = getBestVoice(locale);
-      if (matchingVoice) {
-        utterance.voice = matchingVoice;
-      }
-
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-
-      utterance.onstart = () => setIsSpeakingSource(true);
-      utterance.onend = () => setIsSpeakingSource(false);
-      utterance.onerror = (e) => {
-        console.warn('Speech synthesis source error:', e);
-        setIsSpeakingSource(false);
-      };
-
-      setIsSpeakingSource(true);
-      window.speechSynthesis.speak(utterance);
-    } catch (err) {
-      console.error('Speech synthesis error (Source):', err);
-      setIsSpeakingSource(false);
-    }
+    speakText(
+      sourceText,
+      locale,
+      () => setIsSpeakingSource(true),
+      () => setIsSpeakingSource(false)
+    );
   };
 
   // Text to Speech for Translated Output
@@ -647,42 +657,23 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     if (isSpeakingTarget) {
       window.speechSynthesis.cancel();
       setIsSpeakingTarget(false);
+      setIsSpeakingSource(false);
       return;
     }
 
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-      setIsSpeakingSource(false);
+    setIsSpeakingSource(false);
+    const locale = getSpeechRecognitionLocale(targetLang.code);
 
-      const utterance = new SpeechSynthesisUtterance(translatedText);
-      const locale = getSpeechRecognitionLocale(targetLang.code);
-      utterance.lang = locale;
-
-      const matchingVoice = getBestVoice(locale);
-      if (matchingVoice) {
-        utterance.voice = matchingVoice;
-      }
-
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-
-      utterance.onstart = () => setIsSpeakingTarget(true);
-      utterance.onend = () => setIsSpeakingTarget(false);
-      utterance.onerror = (e) => {
-        console.warn('Speech synthesis target error:', e);
-        setIsSpeakingTarget(false);
-      };
-
-      setIsSpeakingTarget(true);
-      window.speechSynthesis.speak(utterance);
-    } catch (err) {
-      console.error('Speech synthesis error (Target):', err);
-      setIsSpeakingTarget(false);
-    }
+    speakText(
+      translatedText,
+      locale,
+      () => setIsSpeakingTarget(true),
+      () => setIsSpeakingTarget(false)
+    );
   };
 
   const handleSpeak = handleSpeakTarget;
+
 
   // Sample Templates for Fast Testing
   const sampleTemplates = [
