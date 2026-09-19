@@ -250,8 +250,18 @@ async function executeSplitJob(jobId, sourceFilePath) {
     job.completedAt = new Date().toISOString();
   } catch (err) {
     console.error(`[Video Split Error jobId=${jobId}]:`, err);
+    let diag = '';
+    try {
+      const fsModule = await import('fs');
+      const { getFfmpegPath } = await import('../../config/ffmpeg.js');
+      const tmpList = fsModule.existsSync('/tmp') ? fsModule.readdirSync('/tmp').join(',') : 'none';
+      const taskList = fsModule.existsSync('/var/task') ? fsModule.readdirSync('/var/task').join(',') : 'none';
+      const taskBinList = fsModule.existsSync('/var/task/bin') ? fsModule.readdirSync('/var/task/bin').join(',') : 'none';
+      const taskBackendBinList = fsModule.existsSync('/var/task/backend/bin') ? fsModule.readdirSync('/var/task/backend/bin').join(',') : 'none';
+      diag = ` [Diag: ffmpegPath=${getFfmpegPath()}, tmp=[${tmpList}], task=[${taskList}], taskBin=[${taskBinList}], backendBin=[${taskBackendBinList}]]`;
+    } catch (_) {}
     job.status = 'failed';
-    job.error = err.message;
+    job.error = (err.message || 'Video splitting failed') + diag;
   }
 }
 
