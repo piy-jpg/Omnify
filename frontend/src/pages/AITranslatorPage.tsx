@@ -191,6 +191,9 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     }
   };
 
+  const sourceBaseTextRef = useRef('');
+  const targetBaseTextRef = useRef('');
+
   // Voice Dictation for Source Panel
   const handleToggleVoiceInputSource = () => {
     if (isListeningSource) {
@@ -214,29 +217,37 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setErrorMessage('Voice dictation is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      setErrorMessage("Voice input isn't supported in this browser. Please use Chrome, Edge, or Safari.");
       return;
     }
 
     try {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
-      recognition.interimResults = false;
+      recognition.interimResults = true;
 
       const langCode = sourceLang.code === 'auto'
         ? (detectedLangName ? (SUPPORTED_LANGUAGES.find(l => l.name.toLowerCase() === detectedLangName.toLowerCase())?.code || 'en') : 'en')
         : sourceLang.code;
       recognition.lang = getSpeechRecognitionLocale(langCode);
 
+      sourceBaseTextRef.current = sourceText;
+
       recognition.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          const piece = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            transcript += event.results[i][0].transcript + ' ';
+            finalTranscript += piece + ' ';
+          } else {
+            interimTranscript += piece;
           }
         }
-        if (transcript.trim()) {
-          setSourceText(prev => prev ? `${prev} ${transcript.trim()}` : transcript.trim());
+        const spoken = (finalTranscript + interimTranscript).trim();
+        if (spoken) {
+          const base = sourceBaseTextRef.current.trim();
+          setSourceText(base ? `${base} ${spoken}` : spoken);
           if (translationSuccess) setTranslationSuccess(false);
         }
       };
@@ -244,7 +255,7 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
       recognition.onerror = (event: any) => {
         console.warn('Speech recognition error (Source):', event.error);
         if (event.error === 'not-allowed') {
-          setErrorMessage('Microphone access was denied. Please allow microphone permissions in your browser.');
+          setErrorMessage('Microphone access was unavailable. Check your browser permissions.');
         }
         setIsListeningSource(false);
       };
@@ -285,25 +296,33 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setErrorMessage('Voice dictation is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      setErrorMessage("Voice input isn't supported in this browser. Please use Chrome, Edge, or Safari.");
       return;
     }
 
     try {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
-      recognition.interimResults = false;
+      recognition.interimResults = true;
       recognition.lang = getSpeechRecognitionLocale(targetLang.code);
 
+      targetBaseTextRef.current = translatedText;
+
       recognition.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          const piece = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            transcript += event.results[i][0].transcript + ' ';
+            finalTranscript += piece + ' ';
+          } else {
+            interimTranscript += piece;
           }
         }
-        if (transcript.trim()) {
-          setTranslatedText(prev => prev ? `${prev} ${transcript.trim()}` : transcript.trim());
+        const spoken = (finalTranscript + interimTranscript).trim();
+        if (spoken) {
+          const base = targetBaseTextRef.current.trim();
+          setTranslatedText(base ? `${base} ${spoken}` : spoken);
           setIsEditing(true);
         }
       };
@@ -311,7 +330,7 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
       recognition.onerror = (event: any) => {
         console.warn('Speech recognition error (Target):', event.error);
         if (event.error === 'not-allowed') {
-          setErrorMessage('Microphone access was denied. Please allow microphone permissions in your browser.');
+          setErrorMessage('Microphone access was unavailable. Check your browser permissions.');
         }
         setIsListeningTarget(false);
       };
@@ -875,22 +894,40 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
             {/* Left Source Text Input */}
             <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden">
               <div className="flex items-center justify-between p-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-xs font-bold text-slate-500">
-                <div className="flex items-center gap-2">
-                  <span>Source Text ({sourceLang.name})</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-slate-700 dark:text-slate-300">Source ({sourceLang.name})</span>
+                  
+                  {/* Header Listen Button */}
                   <button
                     type="button"
                     onClick={handleSpeakSource}
                     disabled={!sourceText.trim()}
-                    className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                    className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                       isSpeakingSource
                         ? 'bg-purple-600 text-white animate-pulse shadow-xs'
                         : 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 border border-purple-200/60 dark:border-purple-800/60'
                     }`}
                     title={isSpeakingSource ? 'Stop playback' : sourceText.trim() ? `Listen to ${sourceLang.name} source text` : 'Enter text to listen'}
-                    aria-label="Listen to source text"
+                    aria-label="Read source text aloud"
                   >
                     {isSpeakingSource ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
-                    <span>{isSpeakingSource ? 'Speaking...' : 'Listen'}</span>
+                    <span>{isSpeakingSource ? 'Stop' : 'Listen'}</span>
+                  </button>
+
+                  {/* Header Speak Mic Button */}
+                  <button
+                    type="button"
+                    onClick={handleToggleVoiceInputSource}
+                    className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer shadow-xs ${
+                      isListeningSource
+                        ? 'bg-rose-500 text-white animate-pulse shadow-rose-500/30'
+                        : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-950/40 hover:text-purple-600 border border-slate-200/80 dark:border-slate-700'
+                    }`}
+                    title={isListeningSource ? 'Stop voice input' : `Voice input in ${sourceLang.name}`}
+                    aria-label="Start source voice input"
+                  >
+                    {isListeningSource ? <MicOff className="w-3.5 h-3.5 text-white" /> : <Mic className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
+                    <span>{isListeningSource ? 'Listening...' : 'Speak'}</span>
                   </button>
                 </div>
 
@@ -983,25 +1020,43 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
             {/* Right Translated Text Output */}
             <div className="rounded-3xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-900/60 shadow-sm flex flex-col overflow-hidden ring-1 ring-purple-500/10">
               <div className="flex items-center justify-between p-3.5 border-b border-purple-100 dark:border-purple-950/60 bg-purple-50/30 dark:bg-purple-950/30 text-xs font-bold text-purple-700 dark:text-purple-300">
-                <div className="flex items-center gap-2">
-                  <span className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-1 font-bold text-purple-800 dark:text-purple-200">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Translated Result ({targetLang.name})
+                    Target ({targetLang.name})
                   </span>
+
+                  {/* Header Listen Button */}
                   <button
                     type="button"
                     onClick={handleSpeakTarget}
                     disabled={!translatedText.trim()}
-                    className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                    className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                       isSpeakingTarget
                         ? 'bg-purple-600 text-white animate-pulse shadow-xs'
                         : 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/60 border border-purple-200/60 dark:border-purple-800/60'
                     }`}
                     title={isSpeakingTarget ? 'Stop playback' : translatedText.trim() ? `Listen to ${targetLang.name} translation` : 'Translate text to listen'}
-                    aria-label="Listen to translated text"
+                    aria-label="Read translated text aloud"
                   >
                     {isSpeakingTarget ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
-                    <span>{isSpeakingTarget ? 'Speaking...' : 'Listen'}</span>
+                    <span>{isSpeakingTarget ? 'Stop' : 'Listen'}</span>
+                  </button>
+
+                  {/* Header Speak Mic Button */}
+                  <button
+                    type="button"
+                    onClick={handleToggleVoiceInputTarget}
+                    className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer shadow-xs ${
+                      isListeningTarget
+                        ? 'bg-rose-500 text-white animate-pulse shadow-rose-500/30'
+                        : 'text-purple-700 dark:text-purple-300 bg-white dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-950/40 border border-purple-200/80 dark:border-purple-800/80'
+                    }`}
+                    title={isListeningTarget ? 'Stop voice input' : `Voice input in ${targetLang.name}`}
+                    aria-label="Start target voice input"
+                  >
+                    {isListeningTarget ? <MicOff className="w-3.5 h-3.5 text-white" /> : <Mic className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
+                    <span>{isListeningTarget ? 'Listening...' : 'Speak'}</span>
                   </button>
                 </div>
 
