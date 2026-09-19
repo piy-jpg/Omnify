@@ -4,10 +4,6 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
-import ffmpegStatic from 'ffmpeg-static';
-import ffprobeStatic from 'ffprobe-static';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
-import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -69,7 +65,7 @@ function findBinaryInDirectory(baseDir, binaryName, maxDepth = 4) {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
-        if (entry.isFile() && entry.name.toLowerCase().startsWith(binaryName.toLowerCase())) {
+        if (entry.isFile() && entry.name.toLowerCase() === binaryName.toLowerCase()) {
           return fullPath;
         } else if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'src' && entry.name !== 'dist') {
           stack.push({ dir: fullPath, depth: depth + 1 });
@@ -97,29 +93,21 @@ export function getFfmpegPath() {
     }
   }
 
-  // 2. Resolve @ffmpeg-installer and ffmpeg-static import
-  const installerPath = ffmpegInstaller?.path || ffmpegInstaller?.default?.path || null;
-  const staticPath = typeof ffmpegStatic === 'string'
-    ? ffmpegStatic
-    : (ffmpegStatic?.default || ffmpegStatic?.path || null);
-
   const candidatePaths = [
-    installerPath,
-    staticPath,
     path.join(os.tmpdir(), 'ffmpeg'),
     '/tmp/ffmpeg',
     path.resolve(process.cwd(), 'node_modules/@ffmpeg-installer/linux-x64/ffmpeg'),
     path.resolve(process.cwd(), 'node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg'),
     path.resolve(process.cwd(), 'node_modules/@ffmpeg-installer/darwin-x64/ffmpeg'),
     path.resolve('/var/task/node_modules/@ffmpeg-installer/linux-x64/ffmpeg'),
+    path.resolve('/var/task/node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg'),
+    path.resolve(__dirname, '../../node_modules/@ffmpeg-installer/linux-x64/ffmpeg'),
+    path.resolve(__dirname, '../../node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg'),
+    path.resolve(__dirname, '../../../node_modules/@ffmpeg-installer/linux-x64/ffmpeg'),
     path.resolve(process.cwd(), 'node_modules/ffmpeg-static/ffmpeg'),
     path.resolve('/var/task/node_modules/ffmpeg-static/ffmpeg'),
-    path.resolve(__dirname, '../../node_modules/@ffmpeg-installer/linux-x64/ffmpeg'),
     path.resolve(__dirname, '../../node_modules/ffmpeg-static/ffmpeg'),
     path.resolve(__dirname, '../../../node_modules/ffmpeg-static/ffmpeg'),
-    path.resolve(__dirname, '../node_modules/ffmpeg-static/ffmpeg'),
-    path.resolve(__dirname, './node_modules/ffmpeg-static/ffmpeg'),
-    path.resolve(process.cwd(), '../node_modules/ffmpeg-static/ffmpeg'),
     '/usr/bin/ffmpeg',
     '/usr/local/bin/ffmpeg',
     '/opt/homebrew/bin/ffmpeg'
@@ -175,15 +163,7 @@ export function getFfprobePath() {
     }
   }
 
-  // 2. Resolve @ffprobe-installer and ffprobe-static import
-  const installerPath = ffprobeInstaller?.path || ffprobeInstaller?.default?.path || null;
-  const staticPath = typeof ffprobeStatic === 'string'
-    ? ffprobeStatic
-    : (ffprobeStatic?.path || ffprobeStatic?.default?.path || ffprobeStatic?.default || null);
-
   const candidatePaths = [
-    installerPath,
-    staticPath,
     path.join(os.tmpdir(), 'ffprobe'),
     '/tmp/ffprobe',
     path.resolve(process.cwd(), 'node_modules/@ffprobe-installer/linux-x64/ffprobe'),
