@@ -50,17 +50,45 @@ export async function probeVideoMetadata(filePath) {
       size: parseInt(info.format?.size || 0, 10)
     };
   } catch (err) {
-    console.warn('[Video Probe] Warning:', err.message);
-    const stats = fs.existsSync(filePath) ? fs.statSync(filePath) : { size: 0 };
-    return {
-      width: 1920,
-      height: 1080,
-      duration: 10,
-      bitrate: 4000000,
-      fps: 30,
-      codec: 'h264',
-      size: stats.size
-    };
+    // Fallback: Probe metadata directly using FFmpeg -i
+    try {
+      const { stdout, stderr } = await execFfmpegCommand(`-i "${filePath}" 2>&1 || true`);
+      const output = (stdout || '') + (stderr || '');
+      let width = 1920, height = 1080, duration = 10, fps = 30;
+      const resMatch = output.match(/(\d{3,5})x(\d{3,5})/);
+      if (resMatch) {
+        width = parseInt(resMatch[1], 10);
+        height = parseInt(resMatch[2], 10);
+      }
+      const durMatch = output.match(/Duration:\s*(\d+):(\d+):(\d+\.\d+)/);
+      if (durMatch) {
+        const hours = parseInt(durMatch[1], 10);
+        const mins = parseInt(durMatch[2], 10);
+        const secs = parseFloat(durMatch[3]);
+        duration = Math.round((hours * 3600 + mins * 60 + secs) * 100) / 100;
+      }
+      const stats = fs.existsSync(filePath) ? fs.statSync(filePath) : { size: 0 };
+      return {
+        width,
+        height,
+        duration: duration > 0 ? duration : 10,
+        bitrate: 4000000,
+        fps,
+        codec: 'h264',
+        size: stats.size
+      };
+    } catch (_) {
+      const stats = fs.existsSync(filePath) ? fs.statSync(filePath) : { size: 0 };
+      return {
+        width: 1920,
+        height: 1080,
+        duration: 10,
+        bitrate: 4000000,
+        fps: 30,
+        codec: 'h264',
+        size: stats.size
+      };
+    }
   }
 }
 
