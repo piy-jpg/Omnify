@@ -6,26 +6,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
-      "includeFiles": [
-        "bin/**",
-        "backend/bin/**",
-        "node_modules/@ffmpeg-installer/**",
-        "node_modules/@ffprobe-installer/**",
-        "node_modules/ffmpeg-static/**",
-        "node_modules/ffprobe-static/**"
-      ],
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/*.js": {
-      "includeFiles": [
-        "bin/**",
-        "backend/bin/**",
-        "node_modules/@ffmpeg-installer/**",
-        "node_modules/@ffprobe-installer/**",
-        "node_modules/ffmpeg-static/**",
-        "node_modules/ffprobe-static/**"
-      ],
+      "includeFiles": "bin/**",
       "maxDuration": 60,
       "memory": 1024
     }
