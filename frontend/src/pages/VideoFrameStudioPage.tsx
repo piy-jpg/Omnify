@@ -47,7 +47,15 @@ import {
   SkipBack,
   SkipForward,
   FastForward,
-  Rewind
+  Rewind,
+  Copy,
+  Languages,
+  ArrowUpDown,
+  CornerDownLeft,
+  RotateCcw,
+  Edit3,
+  AlignLeft,
+  Type
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -68,7 +76,12 @@ import {
   calculateAspectRatioCrop,
   generateSubtitlesFile,
   getCssFilterString,
+  autoGenerateSubtitles,
+  translateSubtitles,
+  shiftSubtitleCues,
+  parseSubtitlesFile,
   SubtitleCue,
+  SubtitleStyle,
   VideoFilterSettings
 } from '../services/video/videoToolsEngine';
 import { VideoSplitterView } from '../components/video/VideoSplitterView';
@@ -156,8 +169,21 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
 
   // Tool 5: Subtitles & Captions States
   const [subtitles, setSubtitles] = useState<SubtitleCue[]>(INITIAL_SUBTITLES);
-  const [subtitleFormat, setSubtitleFormat] = useState<'srt' | 'vtt'>('srt');
+  const [subtitleFormat, setSubtitleFormat] = useState<'srt' | 'vtt' | 'txt' | 'json'>('srt');
   const [newCueText, setNewCueText] = useState('');
+  const [isAutoGeneratingSubtitles, setIsAutoGeneratingSubtitles] = useState(false);
+  const [subtitleLanguage, setSubtitleLanguage] = useState('en');
+  const [isTranslatingSubtitles, setIsTranslatingSubtitles] = useState(false);
+  const [showSubtitleStyleSettings, setShowSubtitleStyleSettings] = useState(false);
+  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>({
+    fontSize: 'medium',
+    position: 'bottom',
+    color: 'white',
+    bgStyle: 'box'
+  });
+  const [copiedTranscript, setCopiedTranscript] = useState(false);
+  const [editingCueId, setEditingCueId] = useState<number | null>(null);
+  const subtitleFileInputRef = useRef<HTMLInputElement>(null);
 
   // Tool 6: Color Grading & Filters States
   const [filterSettings, setFilterSettings] = useState<VideoFilterSettings>({
@@ -595,13 +621,86 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
   const handleAddSubtitleCue = () => {
     if (!newCueText.trim()) return;
     const newCue: SubtitleCue = {
-      id: subtitles.length + 1,
-      startTime: currentTime,
-      endTime: Math.min((metadata?.duration || 10), currentTime + 3.5),
+      id: Date.now(),
+      startTime: Math.round(currentTime * 10) / 10,
+      endTime: Math.round(Math.min((metadata?.duration || 10), currentTime + 3.0) * 10) / 10,
       text: newCueText.trim()
     };
-    setSubtitles(prev => [...prev, newCue]);
+    setSubtitles(prev => [...prev, newCue].sort((a, b) => a.startTime - b.startTime));
     setNewCueText('');
+  };
+
+  const handleAutoGenerateSubtitles = async () => {
+    setIsAutoGeneratingSubtitles(true);
+    try {
+      const dur = metadata?.duration || 10;
+      const cues = await autoGenerateSubtitles(dur, subtitleLanguage, videoFile?.name || 'Video');
+      setSubtitles(cues);
+      confetti({ particleCount: 70, spread: 60 });
+    } catch (err) {
+      console.error('Auto subtitle generation failed:', err);
+    } finally {
+      setIsAutoGeneratingSubtitles(false);
+    }
+  };
+
+  const handleTranslateSubtitles = async (targetLang: string) => {
+    setIsTranslatingSubtitles(true);
+    try {
+      const translated = await translateSubtitles(subtitles, targetLang);
+      setSubtitles(translated);
+      confetti({ particleCount: 50, spread: 50 });
+    } catch (err) {
+      console.error('Subtitle translation failed:', err);
+    } finally {
+      setIsTranslatingSubtitles(false);
+    }
+  };
+
+  const handleShiftSubtitles = (offsetSec: number) => {
+    setSubtitles(prev => shiftSubtitleCues(prev, offsetSec));
+  };
+
+  const handleImportSubtitles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        const parsed = parseSubtitlesFile(content);
+        if (parsed.length > 0) {
+          setSubtitles(parsed);
+          confetti({ particleCount: 60, spread: 50 });
+        }
+      }
+    };
+    reader.readAsText(file);
+    if (e.target) e.target.value = '';
+  };
+
+  const handleCopySubtitles = () => {
+    const file = generateSubtitlesFile(subtitles, subtitleFormat);
+    navigator.clipboard.writeText(file.content);
+    setCopiedTranscript(true);
+    setTimeout(() => setCopiedTranscript(false), 2000);
+  };
+
+  const handleUpdateCue = (id: number, updates: Partial<SubtitleCue>) => {
+    setSubtitles(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+  };
+
+  const handleSnapCue = (id: number, type: 'start' | 'end') => {
+    setSubtitles(prev => prev.map(c => {
+      if (c.id === id) {
+        if (type === 'start') {
+          return { ...c, startTime: Math.round(currentTime * 10) / 10 };
+        } else {
+          return { ...c, endTime: Math.max(c.startTime + 0.5, Math.round(currentTime * 10) / 10) };
+        }
+      }
+      return c;
+    }));
   };
 
   const handleDownloadSubtitles = () => {
@@ -610,7 +709,53 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
     a.href = file.url;
     a.download = `${(videoFile?.name || 'video').replace(/\.[^/.]+$/, '')}.${subtitleFormat}`;
     a.click();
-    confetti({ particleCount: 50, spread: 50 });
+    confetti({ particleCount: 60, spread: 60 });
+  };
+
+  const handleBurnInSubtitleSnapshot = () => {
+    if (!videoPlayerRef.current) return;
+    const v = videoPlayerRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = v.videoWidth || 1280;
+    canvas.height = v.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.filter = getCssFilterString(filterSettings);
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+
+      if (activeSubtitle) {
+        const text = activeSubtitle.text;
+        const fontSize = subtitleStyle.fontSize === 'small' ? 24 : subtitleStyle.fontSize === 'large' ? 42 : subtitleStyle.fontSize === 'xlarge' ? 52 : 32;
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const textMetrics = ctx.measureText(text);
+        const padding = 20;
+        const boxWidth = textMetrics.width + padding * 2;
+        const boxHeight = fontSize * 1.5;
+
+        const posX = canvas.width / 2;
+        const posY = subtitleStyle.position === 'top' ? 80 : subtitleStyle.position === 'middle' ? canvas.height / 2 : canvas.height - 70;
+
+        if (subtitleStyle.bgStyle === 'box') {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
+          ctx.beginPath();
+          ctx.roundRect(posX - boxWidth / 2, posY - boxHeight / 2, boxWidth, boxHeight, 14);
+          ctx.fill();
+        }
+
+        ctx.fillStyle = subtitleStyle.color === 'yellow' ? '#fde047' : subtitleStyle.color === 'cyan' ? '#38bdf8' : subtitleStyle.color === 'green' ? '#4ade80' : '#ffffff';
+        ctx.fillText(text, posX, posY);
+      }
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `caption_snapshot_${formatTime(currentTime).replace(':', '_')}.jpg`;
+      a.click();
+      confetti({ particleCount: 50, spread: 50 });
+    }
   };
 
   // Tool 6: Color Graded Frame Snapshot
@@ -757,8 +902,36 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
 
                   {/* Live Subtitle Overlay */}
                   {activeSubtitle && (
-                    <div className="absolute bottom-4 left-4 right-4 text-center pointer-events-none z-10">
-                      <span className="inline-block px-3.5 py-1.5 rounded-lg bg-black/80 text-white text-xs sm:text-sm font-semibold tracking-wide shadow-lg border border-white/20 backdrop-blur-xs">
+                    <div className={`absolute left-4 right-4 text-center pointer-events-none z-10 ${
+                      subtitleStyle.position === 'top'
+                        ? 'top-4'
+                        : subtitleStyle.position === 'middle'
+                        ? 'top-1/2 -translate-y-1/2'
+                        : 'bottom-4'
+                    }`}>
+                      <span className={`inline-block px-3.5 py-1.5 rounded-xl font-semibold tracking-wide transition-all ${
+                        subtitleStyle.fontSize === 'small'
+                          ? 'text-[11px] sm:text-xs'
+                          : subtitleStyle.fontSize === 'large'
+                          ? 'text-sm sm:text-base'
+                          : subtitleStyle.fontSize === 'xlarge'
+                          ? 'text-base sm:text-lg'
+                          : 'text-xs sm:text-sm'
+                      } ${
+                        subtitleStyle.color === 'yellow'
+                          ? 'text-yellow-300'
+                          : subtitleStyle.color === 'cyan'
+                          ? 'text-cyan-300'
+                          : subtitleStyle.color === 'green'
+                          ? 'text-emerald-300'
+                          : 'text-white'
+                      } ${
+                        subtitleStyle.bgStyle === 'box'
+                          ? 'bg-black/85 shadow-lg border border-white/20 backdrop-blur-xs'
+                          : subtitleStyle.bgStyle === 'outline'
+                          ? 'bg-transparent text-shadow-md drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]'
+                          : 'bg-black/50 backdrop-blur-xs'
+                      }`}>
                         {activeSubtitle.text}
                       </span>
                     </div>
@@ -1070,82 +1243,410 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
           {/* TAB 2: SUBTITLE & CAPTION GENERATOR */}
           {activeToolTab === 'subtitles' && (
             <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-purple-600" />
-                  <span>Subtitle & Caption Studio (.SRT / .VTT)</span>
-                </h3>
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-xs">
+              
+              {/* 1. Header & Format Switcher */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-purple-600 text-white shadow-xs">
+                      <MessageSquare className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>Subtitle & Caption Studio</span>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                        {subtitles.length} Cues
+                      </span>
+                    </h3>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Auto-generate AI speech captions, edit timestamps, customize styling, and export .SRT/.VTT.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Format Selector */}
+                  <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs">
+                    {(['srt', 'vtt', 'txt', 'json'] as const).map(fmt => (
+                      <button
+                        key={fmt}
+                        onClick={() => setSubtitleFormat(fmt)}
+                        className={`px-2.5 py-1 rounded-lg font-bold text-[10px] uppercase transition-all ${
+                          subtitleFormat === fmt
+                            ? 'bg-purple-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                        }`}
+                      >
+                        {fmt}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Style Toggle Button */}
                   <button
-                    onClick={() => setSubtitleFormat('srt')}
-                    className={`px-2 py-0.5 rounded font-bold ${subtitleFormat === 'srt' ? 'bg-white text-purple-600 shadow-2xs' : 'text-slate-400'}`}
+                    onClick={() => setShowSubtitleStyleSettings(prev => !prev)}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                      showSubtitleStyleSettings
+                        ? 'border-purple-600 bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400'
+                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
                   >
-                    SRT
-                  </button>
-                  <button
-                    onClick={() => setSubtitleFormat('vtt')}
-                    className={`px-2 py-0.5 rounded font-bold ${subtitleFormat === 'vtt' ? 'bg-white text-purple-600 shadow-2xs' : 'text-slate-400'}`}
-                  >
-                    VTT
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Styling</span>
                   </button>
                 </div>
               </div>
 
-              {/* Add New Caption Cue */}
+              {/* 2. Subtitle Style Customizer Accordion */}
+              {showSubtitleStyleSettings && (
+                <div className="p-4 rounded-2xl bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-900/50 space-y-3">
+                  <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Live Video Subtitle Display Styling</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    {/* Font Size */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Font Size</label>
+                      <select
+                        value={subtitleStyle.fontSize}
+                        onChange={(e) => setSubtitleStyle(prev => ({ ...prev, fontSize: e.target.value as any }))}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 text-slate-800 dark:text-white"
+                      >
+                        <option value="small">Small (14px)</option>
+                        <option value="medium">Medium (18px)</option>
+                        <option value="large">Large (22px)</option>
+                        <option value="xlarge">Extra Large (28px)</option>
+                      </select>
+                    </div>
+
+                    {/* Position */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Position</label>
+                      <select
+                        value={subtitleStyle.position}
+                        onChange={(e) => setSubtitleStyle(prev => ({ ...prev, position: e.target.value as any }))}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 text-slate-800 dark:text-white"
+                      >
+                        <option value="bottom">Bottom Overlay</option>
+                        <option value="middle">Center Overlay</option>
+                        <option value="top">Top Overlay</option>
+                      </select>
+                    </div>
+
+                    {/* Text Color */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Text Color</label>
+                      <select
+                        value={subtitleStyle.color}
+                        onChange={(e) => setSubtitleStyle(prev => ({ ...prev, color: e.target.value as any }))}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 text-slate-800 dark:text-white"
+                      >
+                        <option value="white">Crisp White</option>
+                        <option value="yellow">Classic Yellow</option>
+                        <option value="cyan">Cyber Cyan</option>
+                        <option value="green">Soft Green</option>
+                      </select>
+                    </div>
+
+                    {/* Box Style */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Background</label>
+                      <select
+                        value={subtitleStyle.bgStyle}
+                        onChange={(e) => setSubtitleStyle(prev => ({ ...prev, bgStyle: e.target.value as any }))}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 text-slate-800 dark:text-white"
+                      >
+                        <option value="box">Translucent Box</option>
+                        <option value="outline">Text Outline / Shadow</option>
+                        <option value="none">Minimal Translucent</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 3. AI Smart Generation & Tools Action Bar */}
+              <div className="flex items-center justify-between gap-2.5 flex-wrap p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Language Selector */}
+                  <select
+                    value={subtitleLanguage}
+                    onChange={(e) => setSubtitleLanguage(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white font-medium"
+                  >
+                    <option value="en">English (US/UK)</option>
+                    <option value="es">Spanish (Español)</option>
+                    <option value="fr">French (Français)</option>
+                    <option value="de">German (Deutsch)</option>
+                    <option value="hi">Hindi (हिन्दी)</option>
+                  </select>
+
+                  {/* AI Auto-Generate Button */}
+                  <button
+                    onClick={handleAutoGenerateSubtitles}
+                    disabled={isAutoGeneratingSubtitles}
+                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isAutoGeneratingSubtitles ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    )}
+                    <span>{isAutoGeneratingSubtitles ? 'Transcribing Speech...' : 'Auto-Generate AI Captions'}</span>
+                  </button>
+
+                  {/* AI Translate Dropdown */}
+                  <div className="relative group">
+                    <button
+                      disabled={isTranslatingSubtitles || subtitles.length === 0}
+                      className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-semibold flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                    >
+                      <Languages className="w-3.5 h-3.5 text-purple-600" />
+                      <span>{isTranslatingSubtitles ? 'Translating...' : 'Translate'}</span>
+                      <ChevronDown className="w-3 h-3" />
+                    </button>
+                    <div className="absolute top-full left-0 mt-1 w-36 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 p-1 hidden group-hover:block z-30">
+                      {[
+                        { code: 'en', label: 'English' },
+                        { code: 'es', label: 'Spanish' },
+                        { code: 'fr', label: 'French' },
+                        { code: 'de', label: 'German' },
+                        { code: 'hi', label: 'Hindi' }
+                      ].map(lang => (
+                        <button
+                          key={lang.code}
+                          onClick={() => handleTranslateSubtitles(lang.code)}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-purple-50 dark:hover:bg-purple-950 text-slate-700 dark:text-slate-300 font-medium"
+                        >
+                          {lang.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Import & Shift Tools */}
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="file"
+                    ref={subtitleFileInputRef}
+                    accept=".srt,.vtt,.txt"
+                    onChange={handleImportSubtitles}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => subtitleFileInputRef.current?.click()}
+                    className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 shadow-2xs"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Import .SRT</span>
+                  </button>
+
+                  {/* Timestamp Offset Shift */}
+                  <div className="flex items-center gap-0.5 bg-white dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[10px] font-mono">
+                    <button
+                      onClick={() => handleShiftSubtitles(-0.5)}
+                      title="Shift all subtitles -0.5s"
+                      className="px-1.5 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold"
+                    >
+                      -0.5s
+                    </button>
+                    <span className="text-slate-300 dark:text-slate-700">|</span>
+                    <button
+                      onClick={() => handleShiftSubtitles(0.5)}
+                      title="Shift all subtitles +0.5s"
+                      className="px-1.5 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold"
+                    >
+                      +0.5s
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Add New Caption Cue Bar */}
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder={`Add caption at current time (${formatTime(currentTime)})...`}
+                  placeholder={`Type subtitle text at current playhead (${formatTime(currentTime)})...`}
                   value={newCueText}
                   onChange={(e) => setNewCueText(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddSubtitleCue()}
-                  className="flex-1 px-3.5 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="flex-1 px-3.5 py-2.5 rounded-2xl text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium"
                 />
                 <button
                   onClick={handleAddSubtitleCue}
                   disabled={!newCueText.trim()}
-                  className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs disabled:opacity-50 transition-colors"
+                  className="px-4 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
+                  <span>Add Cue</span>
                 </button>
               </div>
 
-              {/* Subtitle Cue List */}
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {subtitles.map(cue => (
-                  <div
-                    key={cue.id}
-                    onClick={() => handleSeek(cue.startTime)}
-                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-purple-300 cursor-pointer flex items-center justify-between text-xs group"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <span className="font-mono text-[10px] text-purple-600 font-bold">
-                        {formatTime(cue.startTime)} - {formatTime(cue.endTime)}
-                      </span>
-                      <p className="font-medium text-slate-800 dark:text-slate-200 truncate mt-0.5">
-                        {cue.text}
-                      </p>
-                    </div>
+              {/* 5. Subtitle Cue Interactive List */}
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {subtitles.length === 0 ? (
+                  <div className="p-8 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 space-y-2">
+                    <MessageSquare className="w-6 h-6 text-slate-400 mx-auto" />
+                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                      No subtitle cues yet.
+                    </p>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSubtitles(prev => prev.filter(c => c.id !== cue.id));
-                      }}
-                      className="p-1 text-slate-400 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={handleAutoGenerateSubtitles}
+                      className="text-xs text-purple-600 dark:text-purple-400 font-bold hover:underline"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      Click here to auto-generate speech captions with AI
                     </button>
                   </div>
-                ))}
+                ) : (
+                  subtitles.map((cue, idx) => {
+                    const isCurrentlyActive = currentTime >= cue.startTime && currentTime <= cue.endTime;
+
+                    return (
+                      <div
+                        key={cue.id}
+                        className={`p-3 rounded-2xl border transition-all ${
+                          isCurrentlyActive
+                            ? 'border-purple-600 bg-purple-50/90 dark:bg-purple-950/70 shadow-sm ring-2 ring-purple-500/20'
+                            : 'border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-purple-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          
+                          {/* Timing Controls & Index */}
+                          <div className="flex items-center gap-2 flex-wrap shrink-0">
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                              #{idx + 1}
+                            </span>
+
+                            {isCurrentlyActive && (
+                              <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500 text-white animate-pulse">
+                                LIVE
+                              </span>
+                            )}
+
+                            {/* Timestamp adjuster buttons */}
+                            <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-purple-600 dark:text-purple-400 bg-white dark:bg-slate-900 px-2 py-1 rounded-xl border border-purple-200/60 dark:border-purple-800">
+                              <button
+                                onClick={() => handleSeek(cue.startTime)}
+                                title="Jump to start time"
+                                className="hover:underline cursor-pointer"
+                              >
+                                {formatTime(cue.startTime)}
+                              </button>
+                              <span>—</span>
+                              <button
+                                onClick={() => handleSeek(cue.endTime)}
+                                title="Jump to end time"
+                                className="hover:underline cursor-pointer"
+                              >
+                                {formatTime(cue.endTime)}
+                              </button>
+                            </div>
+
+                            {/* Micro Nudge Offset */}
+                            <div className="flex items-center gap-0.5 bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[9px] font-mono">
+                              <button
+                                onClick={() => handleUpdateCue(cue.id, { startTime: Math.max(0, cue.startTime - 0.2), endTime: Math.max(0.5, cue.endTime - 0.2) })}
+                                title="Nudge 0.2s earlier"
+                                className="px-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
+                              >
+                                -0.2s
+                              </button>
+                              <button
+                                onClick={() => handleUpdateCue(cue.id, { startTime: cue.startTime + 0.2, endTime: cue.endTime + 0.2 })}
+                                title="Nudge 0.2s later"
+                                className="px-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
+                              >
+                                +0.2s
+                              </button>
+                            </div>
+
+                            {/* Snap to current player playhead */}
+                            <button
+                              onClick={() => handleSnapCue(cue.id, 'start')}
+                              title="Snap cue start time to video playhead"
+                              className="px-1.5 py-0.5 text-[9px] font-bold rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-purple-950 text-slate-700 dark:text-slate-300"
+                            >
+                              Snap Start
+                            </button>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setEditingCueId(editingCueId === cue.id ? null : cue.id)}
+                              title="Edit text"
+                              className="p-1.5 text-slate-400 hover:text-purple-600 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-950 transition-colors"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setSubtitles(prev => prev.filter(c => c.id !== cue.id))}
+                              title="Delete cue"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Cue Text Input / Display */}
+                        <div className="mt-2">
+                          <input
+                            type="text"
+                            value={cue.text}
+                            onChange={(e) => handleUpdateCue(cue.id, { text: e.target.value })}
+                            className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 text-slate-800 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-purple-500"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
 
-              <button
-                onClick={handleDownloadSubtitles}
-                className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download Subtitle File (.{subtitleFormat.toUpperCase()})</span>
-              </button>
+              {/* 6. Export, Copy & Hardcode Subtitle Footer */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
+                <button
+                  onClick={handleDownloadSubtitles}
+                  disabled={subtitles.length === 0}
+                  className="sm:col-span-1 py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download File (.{subtitleFormat.toUpperCase()})</span>
+                </button>
+
+                <button
+                  onClick={handleCopySubtitles}
+                  disabled={subtitles.length === 0}
+                  className="py-3 rounded-2xl bg-white dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-950 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold text-xs flex items-center justify-center gap-2 shadow-2xs transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {copiedTranscript ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-500" />
+                      <span className="text-emerald-600 dark:text-emerald-400">Copied to Clipboard!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4 text-purple-600" />
+                      <span>Copy Transcript</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={handleBurnInSubtitleSnapshot}
+                  disabled={!activeSubtitle}
+                  className="py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+                  title="Capture current video frame with hardcoded subtitles"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Burn-in Frame Snapshot</span>
+                </button>
+              </div>
+
             </div>
           )}
 
