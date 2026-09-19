@@ -15,32 +15,67 @@ let cachedFfmpegPath = null;
 let cachedFfprobePath = null;
 
 /**
- * Ensure binary is executable (especially in /tmp or serverless environments)
+ * Ensure binary is executable in Vercel/Lambda serverless environments.
+ * On serverless platforms, files in /var/task are read-only and restricted.
+ * Copying to /tmp and assigning chmod 0755 guarantees executable permissions.
  */
 function prepareBinary(srcPath, binaryName) {
-  if (!srcPath || !fs.existsSync(srcPath)) {
+  if (!srcPath || typeof srcPath !== 'string' || !fs.existsSync(srcPath)) {
     return null;
   }
 
-  try {
-    // Check if directly executable
-    fs.accessSync(srcPath, fs.constants.X_OK);
-    return srcPath;
-  } catch {
-    // If not executable directly (e.g. read-only filesystem or restricted permissions),
-    // copy it to OS temp directory and set execute permission
+  const tempBinaryPath = path.join(os.tmpdir(), binaryName);
+
+  // If already pointing to the temp binary, verify chmod and return
+  if (path.resolve(srcPath) === path.resolve(tempBinaryPath)) {
     try {
-      const tempBinaryPath = path.join(os.tmpdir(), binaryName);
-      if (!fs.existsSync(tempBinaryPath) || fs.statSync(tempBinaryPath).size !== fs.statSync(srcPath).size) {
-        fs.copyFileSync(srcPath, tempBinaryPath);
-        fs.chmodSync(tempBinaryPath, 0o755);
-      }
-      return tempBinaryPath;
-    } catch (copyErr) {
-      console.warn(`[FFmpeg Helper] Failed to copy/chmod binary ${binaryName}:`, copyErr.message);
+      fs.chmodSync(tempBinaryPath, 0o755);
+    } catch (_) {}
+    return tempBinaryPath;
+  }
+
+  // Copy to /tmp to guarantee execution privileges on serverless runtimes
+  try {
+    const srcStat = fs.statSync(srcPath);
+    const needCopy = !fs.existsSync(tempBinaryPath) || fs.statSync(tempBinaryPath).size !== srcStat.size;
+    if (needCopy) {
+      fs.copyFileSync(srcPath, tempBinaryPath);
+    }
+    fs.chmodSync(tempBinaryPath, 0o755);
+    return tempBinaryPath;
+  } catch (copyErr) {
+    console.warn(`[FFmpeg Helper] Warning preparing binary in ${tempBinaryPath}:`, copyErr.message);
+    try {
+      fs.accessSync(srcPath, fs.constants.X_OK);
+      return srcPath;
+    } catch {
       return srcPath;
     }
   }
+}
+
+/**
+ * Search directory recursively for a binary matching the given name
+ */
+function findBinaryInDirectory(baseDir, binaryName, maxDepth = 4) {
+  try {
+    if (!fs.existsSync(baseDir)) return null;
+    const stack = [{ dir: baseDir, depth: 0 }];
+    while (stack.length > 0) {
+      const { dir, depth } = stack.pop();
+      if (depth > maxDepth) continue;
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isFile() && entry.name.toLowerCase().startsWith(binaryName.toLowerCase())) {
+          return fullPath;
+        } else if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'src' && entry.name !== 'dist') {
+          stack.push({ dir: fullPath, depth: depth + 1 });
+        }
+      }
+    }
+  } catch (_) {}
+  return null;
 }
 
 /**
@@ -60,12 +95,25 @@ export function getFfmpegPath() {
     }
   }
 
-  // 2. Static package binary from ffmpeg-static
+  // 2. Resolve ffmpeg-static import (handling CJS/ESM interop)
+  const staticPath = typeof ffmpegStatic === 'string'
+    ? ffmpegStatic
+    : (ffmpegStatic?.default || ffmpegStatic?.path || null);
+
   const candidatePaths = [
-    ffmpegStatic,
+    staticPath,
+    path.join(os.tmpdir(), 'ffmpeg'),
+    '/tmp/ffmpeg',
     path.resolve(process.cwd(), 'node_modules/ffmpeg-static/ffmpeg'),
+    path.resolve('/var/task/node_modules/ffmpeg-static/ffmpeg'),
     path.resolve(__dirname, '../../node_modules/ffmpeg-static/ffmpeg'),
-    path.join(os.tmpdir(), 'ffmpeg')
+    path.resolve(__dirname, '../../../node_modules/ffmpeg-static/ffmpeg'),
+    path.resolve(__dirname, '../node_modules/ffmpeg-static/ffmpeg'),
+    path.resolve(__dirname, './node_modules/ffmpeg-static/ffmpeg'),
+    path.resolve(process.cwd(), '../node_modules/ffmpeg-static/ffmpeg'),
+    '/usr/bin/ffmpeg',
+    '/usr/local/bin/ffmpeg',
+    '/opt/homebrew/bin/ffmpeg'
   ];
 
   for (const candidate of candidatePaths) {
@@ -78,7 +126,25 @@ export function getFfmpegPath() {
     }
   }
 
-  // 3. Fallback to system ffmpeg command
+  // 3. Fallback: search node_modules directories dynamically
+  const searchDirs = [
+    path.resolve(process.cwd(), 'node_modules/ffmpeg-static'),
+    path.resolve('/var/task/node_modules/ffmpeg-static'),
+    path.resolve(__dirname, '../../node_modules/ffmpeg-static')
+  ];
+
+  for (const searchDir of searchDirs) {
+    const found = findBinaryInDirectory(searchDir, 'ffmpeg');
+    if (found) {
+      const res = prepareBinary(found, 'ffmpeg');
+      if (res) {
+        cachedFfmpegPath = res;
+        return cachedFfmpegPath;
+      }
+    }
+  }
+
+  // 4. Fallback to system ffmpeg command
   return 'ffmpeg';
 }
 
@@ -99,15 +165,28 @@ export function getFfprobePath() {
     }
   }
 
-  // 2. Static package binary from ffprobe-static
-  const staticPath = ffprobeStatic?.path || ffprobeStatic;
+  // 2. Resolve ffprobe-static import (handling CJS/ESM interop)
+  const staticPath = typeof ffprobeStatic === 'string'
+    ? ffprobeStatic
+    : (ffprobeStatic?.path || ffprobeStatic?.default?.path || ffprobeStatic?.default || null);
+
   const candidatePaths = [
     staticPath,
+    path.join(os.tmpdir(), 'ffprobe'),
+    '/tmp/ffprobe',
     path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
+    path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/linux/arm64/ffprobe'),
     path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/darwin/arm64/ffprobe'),
+    path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/darwin/x64/ffprobe'),
+    path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/win32/x64/ffprobe.exe'),
+    path.resolve('/var/task/node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
+    path.resolve('/var/task/node_modules/ffprobe-static/bin/linux/arm64/ffprobe'),
     path.resolve(__dirname, '../../node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
     path.resolve(__dirname, '../../node_modules/ffprobe-static/bin/darwin/arm64/ffprobe'),
-    path.join(os.tmpdir(), 'ffprobe')
+    path.resolve(__dirname, '../../../node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
+    '/usr/bin/ffprobe',
+    '/usr/local/bin/ffprobe',
+    '/opt/homebrew/bin/ffprobe'
   ];
 
   for (const candidate of candidatePaths) {
@@ -120,7 +199,25 @@ export function getFfprobePath() {
     }
   }
 
-  // 3. Fallback to system ffprobe command
+  // 3. Fallback: search node_modules directories dynamically
+  const searchDirs = [
+    path.resolve(process.cwd(), 'node_modules/ffprobe-static'),
+    path.resolve('/var/task/node_modules/ffprobe-static'),
+    path.resolve(__dirname, '../../node_modules/ffprobe-static')
+  ];
+
+  for (const searchDir of searchDirs) {
+    const found = findBinaryInDirectory(searchDir, 'ffprobe');
+    if (found) {
+      const res = prepareBinary(found, 'ffprobe');
+      if (res) {
+        cachedFfprobePath = res;
+        return cachedFfprobePath;
+      }
+    }
+  }
+
+  // 4. Fallback to system ffprobe command
   return 'ffprobe';
 }
 

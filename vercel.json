@@ -6,7 +6,18 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
-      "includeFiles": "node_modules/ffmpeg-static/**,node_modules/ffprobe-static/**",
+      "includeFiles": [
+        "node_modules/ffmpeg-static/**",
+        "node_modules/ffprobe-static/**"
+      ],
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "api/*.js": {
+      "includeFiles": [
+        "node_modules/ffmpeg-static/**",
+        "node_modules/ffprobe-static/**"
+      ],
       "maxDuration": 60,
       "memory": 1024
     }

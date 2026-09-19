@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "postinstall": "node ./node_modules/ffmpeg-static/install.js || true",
     "preview": "vite preview",
     "server": "node server.js",
     "start": "node server.js"
