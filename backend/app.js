@@ -21,7 +21,7 @@ if (fs.existsSync(DIST_DIR)) {
 }
 
 // Diagnostics endpoint to test ffmpeg and environment on Vercel
-app.get('/api/test-ffmpeg', async (req, res) => {
+app.get(['/api/test-ffmpeg', '/test-ffmpeg'], async (req, res) => {
   try {
     const os = await import('os');
     const { getFfmpegPath, ensureFfmpegPath, execFfmpegCommand } = await import('./config/ffmpeg.js');
@@ -55,8 +55,9 @@ app.get('/api/test-ffmpeg', async (req, res) => {
   }
 });
 
-// Mount central API router under /api
+// Mount central API router under /api and root
 app.use('/api', apiRouter);
+app.use(apiRouter);
 
 // SPA client-side fallback / Health endpoint
 app.get('*', (req, res) => {
