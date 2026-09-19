@@ -80,6 +80,8 @@ import {
   translateSubtitles,
   shiftSubtitleCues,
   parseSubtitlesFile,
+  generate3DCubeLut,
+  DEFAULT_FILTER_SETTINGS,
   SubtitleCue,
   SubtitleStyle,
   SubtitleFormat,
@@ -95,6 +97,29 @@ interface VideoFrameStudioPageProps {
 }
 
 type StudioToolTab = 'frames' | 'splitter' | 'mldataset' | 'subtitles' | 'filters' | 'audio' | 'storyboard' | 'aspect' | 'speed';
+
+const COLOR_PRESETS: {
+  id: string;
+  name: string;
+  category: 'cinematic' | 'vintage' | 'creative' | 'mono';
+  description: string;
+  colorBadge: string;
+}[] = [
+  { id: 'none', name: 'Original (Neutral)', category: 'cinematic', description: 'Raw default camera profile', colorBadge: 'from-slate-400 to-slate-600' },
+  { id: 'teal_orange', name: 'Teal & Orange', category: 'cinematic', description: 'Hollywood blockbuster skin & shadows', colorBadge: 'from-teal-400 to-orange-500' },
+  { id: 'cinematic', name: 'Cinematic Film', category: 'cinematic', description: 'Rich shadows & filmic dynamic range', colorBadge: 'from-emerald-500 to-amber-600' },
+  { id: 'warm_sunset', name: 'Golden Sunset', category: 'cinematic', description: 'Warm amber glow & golden hour', colorBadge: 'from-amber-400 to-rose-500' },
+  { id: 'cool_noir', name: 'Cool Moody', category: 'cinematic', description: 'Deep cold blues & atmospheric shadows', colorBadge: 'from-blue-600 to-cyan-400' },
+  { id: 'vintage', name: '70s Vintage', category: 'vintage', description: 'Warm retro sepia & classic film grain', colorBadge: 'from-yellow-600 to-amber-800' },
+  { id: 'bleach_bypass', name: 'Bleach Bypass', category: 'vintage', description: 'High contrast desaturated gritty look', colorBadge: 'from-stone-400 to-zinc-700' },
+  { id: 'sepia', name: 'Classic Sepia', category: 'vintage', description: 'Timeless antique monochrome tone', colorBadge: 'from-amber-700 to-yellow-800' },
+  { id: 'cyberpunk', name: 'Cyberpunk Neon', category: 'creative', description: 'Vibrant electric magenta & cyan glow', colorBadge: 'from-fuchsia-500 to-cyan-400' },
+  { id: 'vivid', name: 'Ultra Vivid HDR', category: 'creative', description: 'Punchy saturated colors & clarity', colorBadge: 'from-violet-500 to-rose-500' },
+  { id: 'pastel', name: 'Dreamy Pastel', category: 'creative', description: 'Soft airy tones & lifted gentle shadows', colorBadge: 'from-pink-300 to-indigo-300' },
+  { id: 'matrix', name: 'Matrix Emerald', category: 'creative', description: 'Sci-fi deep digital greens', colorBadge: 'from-green-500 to-emerald-800' },
+  { id: 'invert', name: 'Invert Thermal', category: 'creative', description: 'Surreal negative thermal colors', colorBadge: 'from-purple-500 to-yellow-400' },
+  { id: 'bw', name: 'Film Noir B&W', category: 'mono', description: 'Deep monochromatic black & white contrast', colorBadge: 'from-zinc-900 to-zinc-400' },
+];
 
 const SUBTITLE_FORMAT_OPTIONS: { id: SubtitleFormat; label: string; name: string; ext: string; category: 'standard' | 'data' | 'advanced' | 'media'; badge?: string }[] = [
   { id: 'srt', label: 'SRT', name: 'SubRip Universal Subtitles', ext: '.srt', category: 'standard', badge: 'Popular' },
@@ -203,14 +228,11 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
   const subtitleFileInputRef = useRef<HTMLInputElement>(null);
 
   // Tool 6: Color Grading & Filters States
-  const [filterSettings, setFilterSettings] = useState<VideoFilterSettings>({
-    preset: 'none',
-    brightness: 100,
-    contrast: 100,
-    saturation: 100,
-    hueRotate: 0,
-    blur: 0
-  });
+  const [filterSettings, setFilterSettings] = useState<VideoFilterSettings>({ ...DEFAULT_FILTER_SETTINGS });
+  const [presetCategoryFilter, setPresetCategoryFilter] = useState<'all' | 'cinematic' | 'vintage' | 'creative' | 'mono'>('all');
+  const [activeGradingTab, setActiveGradingTab] = useState<'presets' | 'tone' | 'color' | 'effects'>('presets');
+  const [isBypassingFilter, setIsBypassingFilter] = useState(false);
+  const [copiedLutRecipe, setCopiedLutRecipe] = useState(false);
   const [gradedSnapshotUrl, setGradedSnapshotUrl] = useState<string | null>(null);
 
   // Refs
@@ -789,21 +811,44 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
     }
   };
 
-  // Tool 6: Color Graded Frame Snapshot
-  const handleCaptureGradedSnapshot = () => {
+  // Tool 6: Color Grading Actions
+  const handleCaptureGradedSnapshot = (format: 'jpeg' | 'png' = 'jpeg') => {
     if (!videoPlayerRef.current) return;
     const v = videoPlayerRef.current;
     const canvas = document.createElement('canvas');
-    canvas.width = v.videoWidth || 1280;
-    canvas.height = v.videoHeight || 720;
+    canvas.width = v.videoWidth || 1920;
+    canvas.height = v.videoHeight || 1080;
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.filter = getCssFilterString(filterSettings);
       ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-      const url = canvas.toDataURL('image/jpeg', 0.95);
+      const mime = format === 'png' ? 'image/png' : 'image/jpeg';
+      const url = canvas.toDataURL(mime, 0.95);
       setGradedSnapshotUrl(url);
       confetti({ particleCount: 50, spread: 50 });
     }
+  };
+
+  const handleExportCubeLut = () => {
+    const { url } = generate3DCubeLut(filterSettings, 33);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(videoFile?.name || 'video').replace(/\.[^/.]+$/, '')}_${filterSettings.preset || 'custom'}.cube`;
+    a.click();
+    confetti({ particleCount: 60, spread: 60 });
+  };
+
+  const handleCopyFilterRecipe = () => {
+    const css = getCssFilterString(filterSettings);
+    const json = JSON.stringify(filterSettings, null, 2);
+    navigator.clipboard.writeText(`/* ConvertPro Color Grade Recipe */\nCSS Filter: filter: ${css};\n\nSettings JSON:\n${json}`);
+    setCopiedLutRecipe(true);
+    setTimeout(() => setCopiedLutRecipe(false), 2000);
+  };
+
+  const handleResetFilterSettings = () => {
+    setFilterSettings({ ...DEFAULT_FILTER_SETTINGS });
+    setGradedSnapshotUrl(null);
   };
 
   // Tool 7: Change Playback Rate
@@ -927,9 +972,17 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
                     onEnded={() => setIsPlaying(false)}
                     muted={isMuted}
                     playsInline
-                    style={{ filter: getCssFilterString(filterSettings) }}
+                    style={{ filter: isBypassingFilter ? 'none' : getCssFilterString(filterSettings) }}
                     className="w-full h-full object-contain transition-all duration-200"
                   />
+
+                  {/* Filter Bypass Badge Overlay */}
+                  {isBypassingFilter && (
+                    <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-amber-500/90 backdrop-blur-xs text-white text-[10px] font-bold tracking-wider uppercase shadow-md flex items-center gap-1.5 animate-pulse">
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Original Video (Bypassing Grade)</span>
+                    </div>
+                  )}
 
                   {/* Live Subtitle Overlay */}
                   {activeSubtitle && (
@@ -2014,99 +2067,471 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
             </div>
           )}
 
-          {/* TAB 3: COLOR GRADING & FILTERS */}
+          {/* TAB 3: COLOR GRADING & FILTERS STUDIO */}
           {activeToolTab === 'filters' && (
             <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-                  <Palette className="w-4 h-4 text-purple-600" />
-                  <span>Color Grading & Filter Studio</span>
-                </h3>
+              
+              {/* 1. Header & Pro Actions */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-xs">
+                      <Palette className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>Color Grading & Filter Studio</span>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                        {COLOR_PRESETS.find(p => p.id === filterSettings.preset)?.name || 'Custom Grade'}
+                      </span>
+                    </h3>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Real-time GPU color correction, 14 cinematic LUTs, tone mapping, and 3D LUT (.CUBE) export.
+                  </p>
+                </div>
+
+                {/* Quick Compare, Reset & Recipe Tools */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* Hold to Compare Original */}
+                  <button
+                    type="button"
+                    onMouseDown={() => setIsBypassingFilter(true)}
+                    onMouseUp={() => setIsBypassingFilter(false)}
+                    onMouseLeave={() => setIsBypassingFilter(false)}
+                    onTouchStart={() => setIsBypassingFilter(true)}
+                    onTouchEnd={() => setIsBypassingFilter(false)}
+                    title="Hold down to compare with original ungraded video"
+                    className="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-amber-300 dark:border-amber-700/80 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition-all flex items-center gap-1.5 shadow-2xs select-none cursor-pointer active:scale-95"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Hold Compare</span>
+                  </button>
+
+                  {/* Copy Recipe */}
+                  <button
+                    type="button"
+                    onClick={handleCopyFilterRecipe}
+                    title="Copy CSS Filter & Grade parameters"
+                    className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                  >
+                    {copiedLutRecipe ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Recipe</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Export 3D LUT */}
+                  <button
+                    type="button"
+                    onClick={handleExportCubeLut}
+                    title="Export .CUBE 3D LUT for Premiere, DaVinci Resolve, and Final Cut Pro"
+                    className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all flex items-center gap-1 shadow-xs cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>.CUBE LUT</span>
+                  </button>
+
+                  {/* Reset Settings */}
+                  <button
+                    type="button"
+                    onClick={handleResetFilterSettings}
+                    title="Reset all color grading adjustments to neutral defaults"
+                    className="p-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
-              {/* Preset Filters */}
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 text-xs">
+              {/* 2. Grading Sub-Tabs Navigator */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-2xl text-xs font-bold">
                 {[
-                  { id: 'none', label: 'Original' },
-                  { id: 'cinematic', label: 'Cinematic' },
-                  { id: 'vintage', label: 'Vintage' },
-                  { id: 'bw', label: 'Noir B&W' },
-                  { id: 'cyberpunk', label: 'Cyberpunk' },
-                  { id: 'vivid', label: 'Vivid' },
-                  { id: 'sepia', label: 'Sepia' }
-                ].map(p => (
+                  { id: 'presets', label: '🎨 Presets & LUTs (14)' },
+                  { id: 'tone', label: '☀️ Tone & Exposure' },
+                  { id: 'color', label: '🌈 Color & Saturation' },
+                  { id: 'effects', label: '✨ Effects & Texture' }
+                ].map(tab => (
                   <button
-                    key={p.id}
-                    onClick={() => setFilterSettings(prev => ({ ...prev, preset: p.id as any }))}
-                    className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all ${
-                      filterSettings.preset === p.id
-                        ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                    key={tab.id}
+                    onClick={() => setActiveGradingTab(tab.id as any)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-center transition-all cursor-pointer ${
+                      activeGradingTab === tab.id
+                        ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
-                    {p.label}
+                    {tab.label}
                   </button>
                 ))}
               </div>
 
-              {/* Custom Sliders */}
-              <div className="space-y-2.5 pt-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Brightness ({filterSettings.brightness}%)</span>
-                  <input
-                    type="range"
-                    min="50"
-                    max="150"
-                    value={filterSettings.brightness}
-                    onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'none', brightness: parseInt(e.target.value) }))}
-                    className="w-32 accent-purple-600"
-                  />
+              {/* 3. Sub-Tab 1: Presets & Cinematic LUTs */}
+              {activeGradingTab === 'presets' && (
+                <div className="space-y-3 animate-in fade-in">
+                  {/* Category Pills */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Preset Category:
+                    </span>
+                    <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/60 p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700 text-[10px] font-semibold">
+                      {[
+                        { id: 'all', label: 'All (14)' },
+                        { id: 'cinematic', label: 'Cinematic' },
+                        { id: 'vintage', label: 'Vintage' },
+                        { id: 'creative', label: 'Creative' },
+                        { id: 'mono', label: 'B&W' }
+                      ].map(cat => (
+                        <button
+                          key={cat.id}
+                          onClick={() => setPresetCategoryFilter(cat.id as any)}
+                          className={`px-2 py-0.5 rounded-lg transition-all ${
+                            presetCategoryFilter === cat.id
+                              ? 'bg-purple-600 text-white font-bold shadow-xs'
+                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Presets Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                    {COLOR_PRESETS
+                      .filter(p => presetCategoryFilter === 'all' || p.category === presetCategoryFilter)
+                      .map(p => {
+                        const isSelected = filterSettings.preset === p.id;
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => setFilterSettings(prev => ({
+                              ...DEFAULT_FILTER_SETTINGS,
+                              preset: p.id
+                            }))}
+                            className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2 cursor-pointer ${
+                              isSelected
+                                ? 'border-purple-600 bg-purple-50/80 dark:bg-purple-950/60 ring-2 ring-purple-500/20 shadow-xs'
+                                : 'border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-purple-300 dark:hover:border-purple-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${p.colorBadge} shadow-2xs shrink-0`} />
+                              {isSelected && (
+                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded-full bg-purple-600 text-white">
+                                  Active
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-800 dark:text-white line-clamp-1">
+                                {p.name}
+                              </p>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                                {p.description}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Contrast ({filterSettings.contrast}%)</span>
-                  <input
-                    type="range"
-                    min="50"
-                    max="150"
-                    value={filterSettings.contrast}
-                    onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'none', contrast: parseInt(e.target.value) }))}
-                    className="w-32 accent-purple-600"
-                  />
+              )}
+
+              {/* 4. Sub-Tab 2: Tone & Exposure Controls */}
+              {activeGradingTab === 'tone' && (
+                <div className="space-y-4 animate-in fade-in">
+                  <div className="space-y-3 text-xs">
+                    
+                    {/* Brightness */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Brightness:</span>
+                        <div className="flex items-center gap-1 font-mono font-bold text-purple-600 dark:text-purple-400">
+                          <span>{filterSettings.brightness}%</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="20"
+                        max="180"
+                        value={filterSettings.brightness}
+                        onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'custom', brightness: parseInt(e.target.value) }))}
+                        className="w-full accent-purple-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Contrast */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Contrast:</span>
+                        <div className="flex items-center gap-1 font-mono font-bold text-purple-600 dark:text-purple-400">
+                          <span>{filterSettings.contrast}%</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="40"
+                        max="200"
+                        value={filterSettings.contrast}
+                        onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'custom', contrast: parseInt(e.target.value) }))}
+                        className="w-full accent-purple-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Exposure Compensation */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Exposure Bias (EV):</span>
+                        <div className="flex items-center gap-1 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          <span>{filterSettings.exposure > 0 ? `+${filterSettings.exposure}` : filterSettings.exposure}</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="-60"
+                        max="60"
+                        value={filterSettings.exposure}
+                        onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'custom', exposure: parseInt(e.target.value) }))}
+                        className="w-full accent-indigo-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick Dynamic Presets */}
+                  <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                    <span className="text-slate-400 font-bold uppercase">Quick Presets:</span>
+                    <button
+                      type="button"
+                      onClick={() => setFilterSettings(prev => ({ ...prev, preset: 'custom', brightness: 100, contrast: 100, exposure: 0 }))}
+                      className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-semibold"
+                    >
+                      Default Neutral
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterSettings(prev => ({ ...prev, preset: 'custom', brightness: 105, contrast: 130, exposure: 5 }))}
+                      className="px-2 py-1 rounded-lg bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-semibold"
+                    >
+                      High Dynamic Range
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterSettings(prev => ({ ...prev, preset: 'custom', brightness: 90, contrast: 140, exposure: -10 }))}
+                      className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold"
+                    >
+                      Low-Key Dramatic
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Saturation ({filterSettings.saturation}%)</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="200"
-                    value={filterSettings.saturation}
-                    onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'none', saturation: parseInt(e.target.value) }))}
-                    className="w-32 accent-purple-600"
-                  />
+              )}
+
+              {/* 5. Sub-Tab 3: Color & Saturation */}
+              {activeGradingTab === 'color' && (
+                <div className="space-y-4 animate-in fade-in">
+                  <div className="space-y-3 text-xs">
+                    
+                    {/* Saturation */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Color Saturation:</span>
+                        <div className="flex items-center gap-1 font-mono font-bold text-purple-600 dark:text-purple-400">
+                          <span>{filterSettings.saturation}%</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="250"
+                        value={filterSettings.saturation}
+                        onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'custom', saturation: parseInt(e.target.value) }))}
+                        className="w-full accent-purple-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Hue Rotation */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Hue Angle Shift:</span>
+                        <div className="flex items-center gap-1 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          <span>{filterSettings.hueRotate}°</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="-180"
+                        max="180"
+                        value={filterSettings.hueRotate}
+                        onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'custom', hueRotate: parseInt(e.target.value) }))}
+                        className="w-full accent-indigo-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Color Temperature / Warmth */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Color Temperature:</span>
+                        <div className="flex items-center gap-1 font-mono font-bold text-amber-600 dark:text-amber-400">
+                          <span>{filterSettings.sepia > 0 ? `+${filterSettings.sepia}% Warm` : 'Neutral'}</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="80"
+                        value={filterSettings.sepia}
+                        onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'custom', sepia: parseInt(e.target.value) }))}
+                        className="w-full accent-amber-500 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Saturation Quick Presets */}
+                  <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                    <span className="text-slate-400 font-bold uppercase">Presets:</span>
+                    <button
+                      type="button"
+                      onClick={() => setFilterSettings(prev => ({ ...prev, preset: 'custom', saturation: 0 }))}
+                      className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-semibold"
+                    >
+                      B&W (0%)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterSettings(prev => ({ ...prev, preset: 'custom', saturation: 100, hueRotate: 0 }))}
+                      className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-semibold"
+                    >
+                      Natural (100%)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterSettings(prev => ({ ...prev, preset: 'custom', saturation: 140 }))}
+                      className="px-2 py-1 rounded-lg bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-semibold"
+                    >
+                      Color Pop (140%)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterSettings(prev => ({ ...prev, preset: 'custom', saturation: 180 }))}
+                      className="px-2 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold"
+                    >
+                      Ultra Vivid (180%)
+                    </button>
+                  </div>
                 </div>
+              )}
+
+              {/* 6. Sub-Tab 4: Effects & Texture */}
+              {activeGradingTab === 'effects' && (
+                <div className="space-y-4 animate-in fade-in">
+                  <div className="space-y-3 text-xs">
+                    
+                    {/* Monochrome Grayscale */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Monochrome Grayscale:</span>
+                        <div className="flex items-center gap-1 font-mono font-bold text-slate-600 dark:text-slate-300">
+                          <span>{filterSettings.grayscale}%</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={filterSettings.grayscale}
+                        onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'custom', grayscale: parseInt(e.target.value) }))}
+                        className="w-full accent-slate-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Soft Lens Blur */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Lens Soft Blur / Bloom:</span>
+                        <div className="flex items-center gap-1 font-mono font-bold text-purple-600 dark:text-purple-400">
+                          <span>{filterSettings.blur}px</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        value={filterSettings.blur}
+                        onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'custom', blur: parseInt(e.target.value) }))}
+                        className="w-full accent-purple-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Invert Thermal */}
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 dark:text-slate-200">Color Inversion (Thermal):</span>
+                        <div className="flex items-center gap-1 font-mono font-bold text-rose-600 dark:text-rose-400">
+                          <span>{filterSettings.invert}%</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={filterSettings.invert}
+                        onChange={(e) => setFilterSettings(prev => ({ ...prev, preset: 'custom', invert: parseInt(e.target.value) }))}
+                        className="w-full accent-rose-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 7. Export & Capture Graded Snapshot Footer */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">
+                <button
+                  onClick={() => handleCaptureGradedSnapshot('jpeg')}
+                  disabled={!videoSrc}
+                  className="py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>Capture Graded Frame (JPG)</span>
+                </button>
+
+                <button
+                  onClick={() => handleCaptureGradedSnapshot('png')}
+                  disabled={!videoSrc}
+                  className="py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Capture Lossless Frame (PNG)</span>
+                </button>
               </div>
 
-              <button
-                onClick={handleCaptureGradedSnapshot}
-                disabled={!videoSrc}
-                className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all"
-              >
-                <Eye className="w-4 h-4" />
-                <span>Capture Graded Frame Snapshot</span>
-              </button>
-
+              {/* Graded Frame Snapshot Result Card */}
               {gradedSnapshotUrl && (
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border flex items-center justify-between animate-in fade-in">
-                  <img src={gradedSnapshotUrl} alt="Graded" className="w-20 h-12 object-cover rounded-lg border" />
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-purple-200/60 dark:border-purple-900/50 flex items-center justify-between gap-3 animate-in fade-in">
+                  <div className="flex items-center gap-3">
+                    <img src={gradedSnapshotUrl} alt="Graded Frame" className="w-20 h-12 object-cover rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs" />
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 dark:text-white">Graded Snapshot Ready</p>
+                      <p className="text-[10px] text-slate-500 font-mono">1920x1080 • {filterSettings.preset.toUpperCase()} Grade</p>
+                    </div>
+                  </div>
                   <a
                     href={gradedSnapshotUrl}
-                    download="Graded_Frame.jpg"
-                    className="px-3 py-1.5 rounded-xl bg-purple-600 text-white font-bold text-xs"
+                    download={`Graded_Frame_${formatTime(currentTime).replace(':', '_')}.jpg`}
+                    className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs"
                   >
-                    Download Frame
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download</span>
                   </a>
                 </div>
               )}
+
             </div>
           )}
 
