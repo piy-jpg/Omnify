@@ -20,6 +20,41 @@ if (fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
 }
 
+// Diagnostics endpoint to test ffmpeg and environment on Vercel
+app.get('/api/test-ffmpeg', async (req, res) => {
+  try {
+    const os = await import('os');
+    const { getFfmpegPath, ensureFfmpegPath, execFfmpegCommand } = await import('./config/ffmpeg.js');
+    
+    const diagnostics = {
+      platform: os.platform(),
+      arch: os.arch(),
+      cwd: process.cwd(),
+      tmpFiles: fs.existsSync('/tmp') ? fs.readdirSync('/tmp') : [],
+      hasNodeModules: fs.existsSync('node_modules'),
+      hasFfmpegInstaller: fs.existsSync('node_modules/@ffmpeg-installer'),
+      hasFfmpegStatic: fs.existsSync('node_modules/ffmpeg-static'),
+      getFfmpegPath: getFfmpegPath(),
+      ensureFfmpegPath: null,
+      ffmpegVersion: null,
+      error: null
+    };
+
+    try {
+      diagnostics.ensureFfmpegPath = await ensureFfmpegPath();
+      const ver = await execFfmpegCommand('-version');
+      diagnostics.ffmpegVersion = ver.stdout.split('\n')[0];
+    } catch (e) {
+      diagnostics.error = e.message;
+      diagnostics.stack = e.stack;
+    }
+
+    res.json(diagnostics);
+  } catch (err) {
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
+
 // Mount central API router under /api
 app.use('/api', apiRouter);
 
