@@ -171,6 +171,8 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
   const [subtitles, setSubtitles] = useState<SubtitleCue[]>(INITIAL_SUBTITLES);
   const [subtitleFormat, setSubtitleFormat] = useState<'srt' | 'vtt' | 'txt' | 'json'>('srt');
   const [newCueText, setNewCueText] = useState('');
+  const [newCueStartTime, setNewCueStartTime] = useState<number>(0);
+  const [newCueEndTime, setNewCueEndTime] = useState<number>(3.0);
   const [isAutoGeneratingSubtitles, setIsAutoGeneratingSubtitles] = useState(false);
   const [subtitleLanguage, setSubtitleLanguage] = useState('en');
   const [isTranslatingSubtitles, setIsTranslatingSubtitles] = useState(false);
@@ -620,14 +622,24 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
   // Tool 5: Subtitle Actions
   const handleAddSubtitleCue = () => {
     if (!newCueText.trim()) return;
+    const dur = metadata?.duration || 10;
+    const start = Math.max(0, Math.min(dur, Math.round(newCueStartTime * 10) / 10));
+    let end = Math.max(0, Math.min(dur, Math.round(newCueEndTime * 10) / 10));
+    if (end <= start) {
+      end = Math.min(dur, Math.round((start + 2.5) * 10) / 10);
+    }
     const newCue: SubtitleCue = {
       id: Date.now(),
-      startTime: Math.round(currentTime * 10) / 10,
-      endTime: Math.round(Math.min((metadata?.duration || 10), currentTime + 3.0) * 10) / 10,
+      startTime: start,
+      endTime: end,
       text: newCueText.trim()
     };
     setSubtitles(prev => [...prev, newCue].sort((a, b) => a.startTime - b.startTime));
     setNewCueText('');
+    const nextStart = end;
+    const nextEnd = Math.min(dur, Math.round((nextStart + 3.0) * 10) / 10);
+    setNewCueStartTime(nextStart);
+    setNewCueEndTime(nextEnd);
   };
 
   const handleAutoGenerateSubtitles = async () => {
@@ -1464,28 +1476,257 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
                 </div>
               </div>
 
-              {/* 4. Add New Caption Cue Bar */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder={`Type subtitle text at current playhead (${formatTime(currentTime)})...`}
-                  value={newCueText}
-                  onChange={(e) => setNewCueText(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddSubtitleCue()}
-                  className="flex-1 px-3.5 py-2.5 rounded-2xl text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium"
-                />
-                <button
-                  onClick={handleAddSubtitleCue}
-                  disabled={!newCueText.trim()}
-                  className="px-4 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Cue</span>
-                </button>
+              {/* 4. Add New Caption Cue Composer (Type text + Manual Scroll / Type Timestamps) */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 space-y-3.5 shadow-2xs">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center text-purple-600 dark:text-purple-400 font-bold text-xs">
+                      <Plus className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800 dark:text-white">
+                      Add Caption Cue
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300">
+                      Duration: {Math.max(0.1, Math.round((newCueEndTime - newCueStartTime) * 10) / 10).toFixed(1)}s
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleSeek(newCueStartTime)}
+                      title="Jump player to cue start time"
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:text-purple-600 hover:border-purple-300 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                    >
+                      ▶ Preview Start
+                    </button>
+                  </div>
+                </div>
+
+                {/* Caption Text Input */}
+                <div>
+                  <textarea
+                    rows={2}
+                    placeholder="Type subtitle or dialogue text here (Press Enter to add)..."
+                    value={newCueText}
+                    onChange={(e) => setNewCueText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleAddSubtitleCue();
+                      }
+                    }}
+                    className="w-full px-3.5 py-2 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium resize-none"
+                  />
+                </div>
+
+                {/* Dual Time Controls: Start & End (Scroll or Type) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  
+                  {/* Start Time Controller */}
+                  <div className="p-3 rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 space-y-2">
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-purple-500" />
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200">Start Time:</span>
+                        <span className="text-[10px] font-mono font-bold text-purple-600 dark:text-purple-400">
+                          {formatTime(newCueStartTime)}
+                        </span>
+                      </div>
+                      {/* Direct Numeric Type */}
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max={metadata?.duration || 100}
+                          value={newCueStartTime}
+                          onChange={(e) => {
+                            const val = Math.max(0, parseFloat(e.target.value) || 0);
+                            setNewCueStartTime(Math.round(val * 10) / 10);
+                            if (newCueEndTime <= val) setNewCueEndTime(Math.round((val + 2.5) * 10) / 10);
+                          }}
+                          className="w-16 px-1.5 py-0.5 text-[11px] font-mono font-bold text-right rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-purple-500"
+                        />
+                        <span className="text-[10px] text-slate-400 font-mono">s</span>
+                      </div>
+                    </div>
+
+                    {/* Scroll / Scrub Range Slider */}
+                    <div className="pt-0.5">
+                      <input
+                        type="range"
+                        min="0"
+                        max={metadata?.duration || 10}
+                        step="0.1"
+                        value={newCueStartTime}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setNewCueStartTime(val);
+                          if (newCueEndTime <= val) setNewCueEndTime(Math.min(metadata?.duration || 100, Math.round((val + 2.5) * 10) / 10));
+                        }}
+                        className="w-full accent-purple-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Quick Snap & Micro Nudges */}
+                    <div className="flex items-center justify-between gap-1 pt-0.5 text-[9px] font-mono">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const snap = Math.round(currentTime * 10) / 10;
+                          setNewCueStartTime(snap);
+                          if (newCueEndTime <= snap) setNewCueEndTime(Math.round((snap + 2.5) * 10) / 10);
+                        }}
+                        title="Snap start time to current playhead"
+                        className="px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800 hover:bg-purple-100 font-bold transition-colors cursor-pointer"
+                      >
+                        🎯 Playhead ({formatTime(currentTime)})
+                      </button>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setNewCueStartTime(prev => Math.max(0, Math.round((prev - 0.5) * 10) / 10))}
+                          className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                        >
+                          -0.5s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewCueStartTime(prev => Math.max(0, Math.round((prev - 0.1) * 10) / 10))}
+                          className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                        >
+                          -0.1s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewCueStartTime(prev => Math.round((prev + 0.1) * 10) / 10)}
+                          className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                        >
+                          +0.1s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewCueStartTime(prev => Math.round((prev + 0.5) * 10) / 10)}
+                          className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                        >
+                          +0.5s
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* End Time Controller */}
+                  <div className="p-3 rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 space-y-2">
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200">End Time:</span>
+                        <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          {formatTime(newCueEndTime)}
+                        </span>
+                      </div>
+                      {/* Direct Numeric Type */}
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max={metadata?.duration || 100}
+                          value={newCueEndTime}
+                          onChange={(e) => {
+                            const val = Math.max(newCueStartTime + 0.1, parseFloat(e.target.value) || 0);
+                            setNewCueEndTime(Math.round(val * 10) / 10);
+                          }}
+                          className="w-16 px-1.5 py-0.5 text-[11px] font-mono font-bold text-right rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                        <span className="text-[10px] text-slate-400 font-mono">s</span>
+                      </div>
+                    </div>
+
+                    {/* Scroll / Scrub Range Slider */}
+                    <div className="pt-0.5">
+                      <input
+                        type="range"
+                        min="0"
+                        max={metadata?.duration || 10}
+                        step="0.1"
+                        value={newCueEndTime}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setNewCueEndTime(val);
+                        }}
+                        className="w-full accent-indigo-600 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Quick Presets & Nudges */}
+                    <div className="flex items-center justify-between gap-1 pt-0.5 text-[9px] font-mono">
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-400 font-sans text-[8px] uppercase font-bold">Presets:</span>
+                        <button
+                          type="button"
+                          onClick={() => setNewCueEndTime(Math.round((newCueStartTime + 2.0) * 10) / 10)}
+                          className="px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800 hover:bg-indigo-100 font-bold"
+                        >
+                          +2s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewCueEndTime(Math.round((newCueStartTime + 3.0) * 10) / 10)}
+                          className="px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800 hover:bg-indigo-100 font-bold"
+                        >
+                          +3s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewCueEndTime(Math.round((newCueStartTime + 5.0) * 10) / 10)}
+                          className="px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800 hover:bg-indigo-100 font-bold"
+                        >
+                          +5s
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setNewCueEndTime(prev => Math.max(newCueStartTime + 0.1, Math.round((prev - 0.5) * 10) / 10))}
+                          className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                        >
+                          -0.5s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewCueEndTime(prev => Math.round((prev + 0.5) * 10) / 10)}
+                          className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                        >
+                          +0.5s
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Submit Bar */}
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    <span>Range: </span>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-200">
+                      {formatTime(newCueStartTime)} → {formatTime(newCueEndTime)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddSubtitleCue}
+                    disabled={!newCueText.trim()}
+                    className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Subtitle Cue</span>
+                  </button>
+                </div>
               </div>
 
               {/* 5. Subtitle Cue Interactive List */}
-              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
                 {subtitles.length === 0 ? (
                   <div className="p-8 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 space-y-2">
                     <MessageSquare className="w-6 h-6 text-slate-400 mx-auto" />
@@ -1526,11 +1767,11 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
                               </span>
                             )}
 
-                            {/* Timestamp adjuster buttons */}
+                            {/* Direct Type Start & End inputs */}
                             <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-purple-600 dark:text-purple-400 bg-white dark:bg-slate-900 px-2 py-1 rounded-xl border border-purple-200/60 dark:border-purple-800">
                               <button
                                 onClick={() => handleSeek(cue.startTime)}
-                                title="Jump to start time"
+                                title="Jump video to start time"
                                 className="hover:underline cursor-pointer"
                               >
                                 {formatTime(cue.startTime)}
@@ -1538,7 +1779,7 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
                               <span>—</span>
                               <button
                                 onClick={() => handleSeek(cue.endTime)}
-                                title="Jump to end time"
+                                title="Jump video to end time"
                                 className="hover:underline cursor-pointer"
                               >
                                 {formatTime(cue.endTime)}
@@ -1567,7 +1808,7 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
                             <button
                               onClick={() => handleSnapCue(cue.id, 'start')}
                               title="Snap cue start time to video playhead"
-                              className="px-1.5 py-0.5 text-[9px] font-bold rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-purple-950 text-slate-700 dark:text-slate-300"
+                              className="px-1.5 py-0.5 text-[9px] font-bold rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-purple-950 text-slate-700 dark:text-slate-300 cursor-pointer"
                             >
                               Snap Start
                             </button>
@@ -1577,22 +1818,22 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => setEditingCueId(editingCueId === cue.id ? null : cue.id)}
-                              title="Edit text"
-                              className="p-1.5 text-slate-400 hover:text-purple-600 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-950 transition-colors"
+                              title="Toggle time scrubbers for this cue"
+                              className="p-1.5 text-slate-400 hover:text-purple-600 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-950 transition-colors cursor-pointer"
                             >
-                              <Edit3 className="w-3.5 h-3.5" />
+                              <SlidersHorizontal className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => setSubtitles(prev => prev.filter(c => c.id !== cue.id))}
                               title="Delete cue"
-                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
 
-                        {/* Cue Text Input / Display */}
+                        {/* Cue Text Input */}
                         <div className="mt-2">
                           <input
                             type="text"
@@ -1601,6 +1842,48 @@ export const VideoFrameStudioPage: React.FC<VideoFrameStudioPageProps> = ({
                             className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 text-slate-800 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-purple-500"
                           />
                         </div>
+
+                        {/* Optional Expanded Individual Cue Time Scroller & Typer */}
+                        {editingCueId === cue.id && (
+                          <div className="mt-2.5 pt-2.5 border-t border-slate-200/80 dark:border-slate-700/80 grid grid-cols-2 gap-2 text-[10px]">
+                            <div className="space-y-1">
+                              <div className="flex justify-between font-mono text-slate-600 dark:text-slate-300">
+                                <span>Start Time (s)</span>
+                                <span>{cue.startTime.toFixed(1)}s</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max={metadata?.duration || 10}
+                                step="0.1"
+                                value={cue.startTime}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  handleUpdateCue(cue.id, { startTime: val, endTime: Math.max(val + 0.2, cue.endTime) });
+                                }}
+                                className="w-full accent-purple-600 h-1 bg-slate-200 dark:bg-slate-700 rounded cursor-pointer"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex justify-between font-mono text-slate-600 dark:text-slate-300">
+                                <span>End Time (s)</span>
+                                <span>{cue.endTime.toFixed(1)}s</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max={metadata?.duration || 10}
+                                step="0.1"
+                                value={cue.endTime}
+                                onChange={(e) => {
+                                  const val = Math.max(cue.startTime + 0.1, parseFloat(e.target.value));
+                                  handleUpdateCue(cue.id, { endTime: val });
+                                }}
+                                className="w-full accent-indigo-600 h-1 bg-slate-200 dark:bg-slate-700 rounded cursor-pointer"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })
