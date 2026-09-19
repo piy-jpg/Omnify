@@ -166,3 +166,66 @@ export const AI_TRANSLATOR_TARGET_LANGUAGES: LanguageItem[] = SUPPORTED_LANGUAGE
 
 export const AI_TRANSLATOR_ALL_LANGUAGES: LanguageItem[] = SUPPORTED_LANGUAGES;
 
+/**
+ * Returns BCP-47 locale tag for speech recognition and synthesis
+ */
+export function getSpeechRecognitionLocale(langCode: string): string {
+  const code = (langCode || 'en').toLowerCase();
+  const map: Record<string, string> = {
+    'en': 'en-US',
+    'hi': 'hi-IN',
+    'es': 'es-ES',
+    'fr': 'fr-FR',
+    'de': 'de-DE',
+    'zh': 'zh-CN',
+    'zh-tw': 'zh-TW',
+    'ja': 'ja-JP',
+    'ar': 'ar-SA',
+    'ru': 'ru-RU',
+    'pt': 'pt-BR',
+    'it': 'it-IT',
+    'ko': 'ko-KR',
+    'bn': 'bn-IN',
+    'te': 'te-IN',
+    'mr': 'mr-IN',
+    'ta': 'ta-IN',
+    'gu': 'gu-IN',
+    'kn': 'kn-IN',
+    'ml': 'ml-IN',
+    'pa': 'pa-IN',
+    'ur': 'ur-PK',
+    'tr': 'tr-TR',
+    'vi': 'vi-VN',
+    'th': 'th-TH',
+    'id': 'id-ID',
+    'ms': 'ms-MY',
+    'nl': 'nl-NL',
+    'pl': 'pl-PL',
+    'uk': 'uk-UA',
+    'el': 'el-GR',
+    'cs': 'cs-CZ',
+    'sv': 'sv-SE',
+    'ro': 'ro-RO',
+    'hu': 'hu-HU',
+    'da': 'da-DK',
+    'fi': 'fi-FI',
+    'no': 'nb-NO',
+    'sk': 'sk-SK',
+    'bg': 'bg-BG',
+    'hr': 'hr-HR',
+    'sr': 'sr-RS',
+    'sl': 'sl-SI',
+    'he': 'he-IL',
+    'fa': 'fa-IR',
+    'tl': 'fil-PH',
+    'fil': 'fil-PH',
+    'ne': 'ne-NP',
+    'si': 'si-LK',
+    'my': 'my-MM',
+    'km': 'km-KH',
+    'sw': 'sw-KE'
+  };
+  return map[code] || (code.length === 2 ? `${code}-${code.toUpperCase()}` : code);
+}
+
+

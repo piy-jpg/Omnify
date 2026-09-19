@@ -51,7 +51,8 @@ import {
   getLanguageByCode,
   AI_TRANSLATOR_SOURCE_LANGUAGES,
   AI_TRANSLATOR_TARGET_LANGUAGES,
-  AI_TRANSLATOR_ALL_LANGUAGES
+  AI_TRANSLATOR_ALL_LANGUAGES,
+  getSpeechRecognitionLocale
 } from '../data/languagesData';
 
 interface AITranslatorPageProps {
@@ -94,8 +95,10 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
   const [isSpeakingSource, setIsSpeakingSource] = useState(false);
   const [isSpeakingTarget, setIsSpeakingTarget] = useState(false);
   const isSpeaking = isSpeakingTarget;
-  const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  const [isListeningSource, setIsListeningSource] = useState(false);
+  const [isListeningTarget, setIsListeningTarget] = useState(false);
+  const sourceRecognitionRef = useRef<any>(null);
+  const targetRecognitionRef = useRef<any>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [translationSuccess, setTranslationSuccess] = useState(false);
@@ -144,6 +147,21 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     } catch {}
   }, [history]);
 
+  // Clean up audio & speech recognition on component unmount
+  useEffect(() => {
+    return () => {
+      if (sourceRecognitionRef.current) {
+        try { sourceRecognitionRef.current.stop(); } catch {}
+      }
+      if (targetRecognitionRef.current) {
+        try { targetRecognitionRef.current.stop(); } catch {}
+      }
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
   // Handle Swap Source & Target Languages (with instant text reversal if exists)
   const handleSwapLanguages = () => {
     let newSource: LanguageItem;
@@ -173,14 +191,25 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     }
   };
 
-  // Voice Dictation (Speech to Text Input)
-  const handleToggleVoiceInput = () => {
-    if (isListening) {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
+  // Voice Dictation for Source Panel
+  const handleToggleVoiceInputSource = () => {
+    if (isListeningSource) {
+      if (sourceRecognitionRef.current) {
+        try { sourceRecognitionRef.current.stop(); } catch {}
       }
-      setIsListening(false);
+      setIsListeningSource(false);
       return;
+    }
+
+    // Stop target mic or speaker if active
+    if (isListeningTarget && targetRecognitionRef.current) {
+      try { targetRecognitionRef.current.stop(); } catch {}
+      setIsListeningTarget(false);
+    }
+    if (isSpeakingSource || isSpeakingTarget) {
+      window.speechSynthesis?.cancel();
+      setIsSpeakingSource(false);
+      setIsSpeakingTarget(false);
     }
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -192,8 +221,12 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     try {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = sourceLang.code === 'auto' ? 'en-US' : sourceLang.code;
+      recognition.interimResults = false;
+
+      const langCode = sourceLang.code === 'auto'
+        ? (detectedLangName ? (SUPPORTED_LANGUAGES.find(l => l.name.toLowerCase() === detectedLangName.toLowerCase())?.code || 'en') : 'en')
+        : sourceLang.code;
+      recognition.lang = getSpeechRecognitionLocale(langCode);
 
       recognition.onresult = (event: any) => {
         let transcript = '';
@@ -202,26 +235,97 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
             transcript += event.results[i][0].transcript + ' ';
           }
         }
-        if (transcript) {
+        if (transcript.trim()) {
           setSourceText(prev => prev ? `${prev} ${transcript.trim()}` : transcript.trim());
+          if (translationSuccess) setTranslationSuccess(false);
         }
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error:', event.error);
-        setIsListening(false);
+        console.warn('Speech recognition error (Source):', event.error);
+        if (event.error === 'not-allowed') {
+          setErrorMessage('Microphone access was denied. Please allow microphone permissions in your browser.');
+        }
+        setIsListeningSource(false);
       };
 
       recognition.onend = () => {
-        setIsListening(false);
+        setIsListeningSource(false);
       };
 
-      recognitionRef.current = recognition;
+      sourceRecognitionRef.current = recognition;
       recognition.start();
-      setIsListening(true);
+      setIsListeningSource(true);
     } catch (err) {
-      console.error('Speech recognition error:', err);
-      setIsListening(false);
+      console.error('Speech recognition error (Source):', err);
+      setIsListeningSource(false);
+    }
+  };
+
+  // Voice Dictation for Target Panel
+  const handleToggleVoiceInputTarget = () => {
+    if (isListeningTarget) {
+      if (targetRecognitionRef.current) {
+        try { targetRecognitionRef.current.stop(); } catch {}
+      }
+      setIsListeningTarget(false);
+      return;
+    }
+
+    // Stop source mic or speaker if active
+    if (isListeningSource && sourceRecognitionRef.current) {
+      try { sourceRecognitionRef.current.stop(); } catch {}
+      setIsListeningSource(false);
+    }
+    if (isSpeakingSource || isSpeakingTarget) {
+      window.speechSynthesis?.cancel();
+      setIsSpeakingSource(false);
+      setIsSpeakingTarget(false);
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setErrorMessage('Voice dictation is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = getSpeechRecognitionLocale(targetLang.code);
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            transcript += event.results[i][0].transcript + ' ';
+          }
+        }
+        if (transcript.trim()) {
+          setTranslatedText(prev => prev ? `${prev} ${transcript.trim()}` : transcript.trim());
+          setIsEditing(true);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error (Target):', event.error);
+        if (event.error === 'not-allowed') {
+          setErrorMessage('Microphone access was denied. Please allow microphone permissions in your browser.');
+        }
+        setIsListeningTarget(false);
+      };
+
+      recognition.onend = () => {
+        setIsListeningTarget(false);
+      };
+
+      targetRecognitionRef.current = recognition;
+      recognition.start();
+      setIsListeningTarget(true);
+    } catch (err) {
+      console.error('Speech recognition error (Target):', err);
+      setIsListeningTarget(false);
     }
   };
 
@@ -471,7 +575,7 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     const langCode = sourceLang.code === 'auto' 
       ? (detectedLangName ? (SUPPORTED_LANGUAGES.find(l => l.name.toLowerCase() === detectedLangName.toLowerCase())?.code || 'en') : 'en')
       : sourceLang.code;
-    utterance.lang = langCode;
+    utterance.lang = getSpeechRecognitionLocale(langCode);
     utterance.onend = () => setIsSpeakingSource(false);
     utterance.onerror = () => setIsSpeakingSource(false);
 
@@ -493,7 +597,7 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     setIsSpeakingSource(false);
 
     const utterance = new SpeechSynthesisUtterance(translatedText);
-    utterance.lang = targetLang.code;
+    utterance.lang = getSpeechRecognitionLocale(targetLang.code);
     utterance.onend = () => setIsSpeakingTarget(false);
     utterance.onerror = () => setIsSpeakingTarget(false);
 
@@ -719,12 +823,13 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                     <button
                       type="button"
                       onClick={handleSpeakSource}
-                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer ${
                         isSpeakingSource
-                          ? 'bg-brand-500 text-white animate-pulse shadow-xs'
-                          : 'text-slate-500 hover:text-brand-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          ? 'bg-purple-600 text-white animate-pulse shadow-xs'
+                          : 'text-slate-500 hover:text-purple-600 hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
-                      title={isSpeakingSource ? 'Stop listening' : `Listen to ${sourceLang.name} source text`}
+                      title={isSpeakingSource ? 'Stop playback' : `Listen to ${sourceLang.name} source text`}
+                      aria-label="Listen to source text"
                     >
                       {isSpeakingSource ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5" />}
                       <span>{isSpeakingSource ? 'Speaking...' : 'Listen'}</span>
@@ -736,17 +841,6 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                   <span>{sourceText.split(/\s+/).filter(Boolean).length} words</span>
                   <span>&bull;</span>
                   <span>{sourceText.length} chars</span>
-                  <button
-                    onClick={handleToggleVoiceInput}
-                    className={`p-1 rounded-lg transition-all cursor-pointer ${
-                      isListening
-                        ? 'bg-rose-500 text-white animate-pulse'
-                        : 'text-slate-400 hover:text-brand-600 hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }`}
-                    title={isListening ? 'Stop voice dictation' : 'Start voice dictation (Speak to translate)'}
-                  >
-                    {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                  </button>
                   {sourceText && (
                     <button
                       onClick={() => {
@@ -756,7 +850,7 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                         setTranslationSuccess(false);
                       }}
                       className="text-slate-400 hover:text-rose-500 ml-1 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                      title="Clear text"
+                      title="Clear source text"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -770,14 +864,68 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                   setSourceText(e.target.value);
                   if (translationSuccess) setTranslationSuccess(false);
                 }}
-                placeholder="Type, paste text, or drag document content here to translate..."
+                placeholder="Type, paste text, or use microphone below to dictate in real time..."
                 className="w-full h-80 sm:h-96 p-4 sm:p-5 bg-transparent text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none resize-none font-sans leading-relaxed"
               />
+
+              {/* Source Panel Bottom Toolbar with Voice & Audio Controls */}
+              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/70 dark:bg-slate-900/70 border-t border-slate-100 dark:border-slate-800 text-xs">
+                <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                  {isListeningSource ? (
+                    <span className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 font-bold animate-pulse">
+                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                      Listening in {sourceLang.name}...
+                    </span>
+                  ) : isSpeakingSource ? (
+                    <span className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400 font-bold animate-pulse">
+                      <span className="w-2 h-2 rounded-full bg-purple-500" />
+                      Speaking {sourceLang.name}...
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-400 hidden sm:inline">Voice & Audio Input</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {/* Speaker Button */}
+                  <button
+                    type="button"
+                    onClick={handleSpeakSource}
+                    disabled={!sourceText.trim()}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isSpeakingSource
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700'
+                    }`}
+                    title={isSpeakingSource ? 'Stop playback' : `Listen to ${sourceLang.name} text`}
+                    aria-label="Listen to source text"
+                  >
+                    {isSpeakingSource ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-purple-500" />}
+                    <span>{isSpeakingSource ? 'Stop' : 'Listen'}</span>
+                  </button>
+
+                  {/* Microphone Dictation Button */}
+                  <button
+                    type="button"
+                    onClick={handleToggleVoiceInputSource}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                      isListeningSource
+                        ? 'bg-rose-500 text-white animate-pulse shadow-rose-500/30'
+                        : 'bg-white dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-slate-700 dark:text-slate-200 hover:text-purple-600 dark:hover:text-purple-300 border border-slate-200/90 dark:border-slate-700'
+                    }`}
+                    title={isListeningSource ? 'Stop voice dictation' : `Dictate in ${sourceLang.name}`}
+                    aria-label="Voice dictation for source text"
+                  >
+                    {isListeningSource ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
+                    <span>{isListeningSource ? 'Listening...' : 'Speak'}</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* Right Translated Text Output */}
-            <div className="rounded-3xl bg-white dark:bg-slate-900 border border-brand-200 dark:border-brand-900/60 shadow-sm flex flex-col overflow-hidden ring-1 ring-brand-500/10">
-              <div className="flex items-center justify-between p-3.5 border-b border-brand-100 dark:border-brand-950/60 bg-brand-50/30 dark:bg-brand-950/30 text-xs font-bold text-brand-700 dark:text-brand-300">
+            <div className="rounded-3xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-900/60 shadow-sm flex flex-col overflow-hidden ring-1 ring-purple-500/10">
+              <div className="flex items-center justify-between p-3.5 border-b border-purple-100 dark:border-purple-950/60 bg-purple-50/30 dark:bg-purple-950/30 text-xs font-bold text-purple-700 dark:text-purple-300">
                 <div className="flex items-center gap-2">
                   <span className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -787,12 +935,13 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                     <button
                       type="button"
                       onClick={handleSpeakTarget}
-                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold cursor-pointer ${
                         isSpeakingTarget
-                          ? 'bg-brand-600 text-white animate-pulse shadow-xs'
-                          : 'text-brand-700 dark:text-brand-300 hover:bg-brand-100/80 dark:hover:bg-brand-900/60'
+                          ? 'bg-purple-600 text-white animate-pulse shadow-xs'
+                          : 'text-purple-700 dark:text-purple-300 hover:bg-purple-100/80 dark:hover:bg-purple-900/60'
                       }`}
-                      title={isSpeakingTarget ? 'Stop listening' : `Listen to ${targetLang.name} translation`}
+                      title={isSpeakingTarget ? 'Stop playback' : `Listen to ${targetLang.name} translation`}
+                      aria-label="Listen to translated text"
                     >
                       {isSpeakingTarget ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5" />}
                       <span>{isSpeakingTarget ? 'Speaking...' : 'Listen'}</span>
@@ -804,6 +953,15 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                   <span>{translatedText.split(/\s+/).filter(Boolean).length} words</span>
                   <span>&bull;</span>
                   <span>{translatedText.length} chars</span>
+                  {translatedText.trim() && (
+                    <button
+                      onClick={handleCopy}
+                      className="text-purple-600 dark:text-purple-400 hover:text-purple-700 ml-1 p-1 rounded-lg hover:bg-purple-100/60 dark:hover:bg-purple-950/60 cursor-pointer"
+                      title="Quick copy"
+                    >
+                      {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -822,6 +980,7 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                     <textarea
                       value={translatedText}
                       onChange={(e) => setTranslatedText(e.target.value)}
+                      placeholder="Edit translation or use microphone below to dictate in target language..."
                       className="w-full h-80 sm:h-96 p-4 sm:p-5 bg-transparent text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none resize-none font-sans leading-relaxed"
                     />
                   ) : (
@@ -834,9 +993,63 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                 <div className="w-full h-80 sm:h-96 flex flex-col items-center justify-center p-6 text-center text-slate-400 space-y-2">
                   <Languages className="w-10 h-10 text-slate-300 dark:text-slate-700" />
                   <p className="text-xs font-bold text-slate-600 dark:text-slate-400">Translation output will appear here</p>
-                  <p className="text-[11px]">Click 'Translate Text' below to generate real AI translation.</p>
+                  <p className="text-[11px]">Click 'Translate to {targetLang.name}' or dictate directly with the microphone below.</p>
                 </div>
               )}
+
+              {/* Target Panel Bottom Toolbar with Voice & Audio Controls */}
+              <div className="flex items-center justify-between px-4 py-2.5 bg-purple-50/40 dark:bg-purple-950/20 border-t border-purple-100 dark:border-purple-950/60 text-xs">
+                <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                  {isListeningTarget ? (
+                    <span className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 font-bold animate-pulse">
+                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                      Listening in {targetLang.name}...
+                    </span>
+                  ) : isSpeakingTarget ? (
+                    <span className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400 font-bold animate-pulse">
+                      <span className="w-2 h-2 rounded-full bg-purple-500" />
+                      Speaking {targetLang.name}...
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-400 hidden sm:inline">Target Voice & Audio Controls</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {/* Speaker Button */}
+                  <button
+                    type="button"
+                    onClick={handleSpeakTarget}
+                    disabled={!translatedText.trim()}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isSpeakingTarget
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700'
+                    }`}
+                    title={isSpeakingTarget ? 'Stop playback' : `Listen to ${targetLang.name} translation`}
+                    aria-label="Listen to translated text"
+                  >
+                    {isSpeakingTarget ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-purple-500" />}
+                    <span>{isSpeakingTarget ? 'Stop' : 'Listen'}</span>
+                  </button>
+
+                  {/* Microphone Dictation Button */}
+                  <button
+                    type="button"
+                    onClick={handleToggleVoiceInputTarget}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                      isListeningTarget
+                        ? 'bg-rose-500 text-white animate-pulse shadow-rose-500/30'
+                        : 'bg-white dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-slate-700 dark:text-slate-200 hover:text-purple-600 dark:hover:text-purple-300 border border-slate-200/90 dark:border-slate-700'
+                    }`}
+                    title={isListeningTarget ? 'Stop voice dictation' : `Dictate in ${targetLang.name}`}
+                    aria-label="Voice dictation for translated text"
+                  >
+                    {isListeningTarget ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
+                    <span>{isListeningTarget ? 'Listening...' : 'Speak'}</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
           </div>
