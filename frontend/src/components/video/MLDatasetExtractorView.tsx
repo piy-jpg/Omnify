@@ -355,9 +355,13 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
                 </p>
               </div>
 
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-purple-700 dark:text-purple-300">
-                <span>{item.recommendedWidth}×{item.recommendedHeight}</span>
-                <span className="uppercase">{item.outputFormat.split('/')[1]}</span>
+              <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                <span className="text-[10px] font-mono font-bold text-purple-700 dark:text-purple-300">
+                  {item.recommendedWidth} × {item.recommendedHeight}
+                </span>
+                <span className="text-[9px] font-bold font-mono px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 uppercase tracking-wider">
+                  {item.outputFormat.split('/')[1]}
+                </span>
               </div>
             </button>
           );
@@ -544,6 +548,219 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
                 </div>
               </div>
             )}
+
+            {config.preset === 'custom' && (
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                      Dataset Name
+                    </label>
+                    <input
+                      type="text"
+                      value={config.datasetName}
+                      onChange={(e) => setConfig(prev => ({ ...prev, datasetName: e.target.value }))}
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                      File Naming Prefix
+                    </label>
+                    <input
+                      type="text"
+                      value={config.namingPrefix}
+                      onChange={(e) => setConfig(prev => ({ ...prev, namingPrefix: e.target.value }))}
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Resolution & Aspect Ratio Controls */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                  Target Resolution (W × H)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={config.targetResolution.width}
+                    onChange={(e) => setConfig(prev => ({
+                      ...prev,
+                      targetResolution: { ...prev.targetResolution, width: parseInt(e.target.value) || 640 }
+                    }))}
+                    className="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                  />
+                  <span className="text-slate-400">×</span>
+                  <input
+                    type="number"
+                    value={config.targetResolution.height}
+                    onChange={(e) => setConfig(prev => ({
+                      ...prev,
+                      targetResolution: { ...prev.targetResolution, height: parseInt(e.target.value) || 640 }
+                    }))}
+                    className="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                  Aspect Ratio Fit Mode
+                </label>
+                <select
+                  value={config.aspectMode}
+                  onChange={(e) => setConfig(prev => ({ ...prev, aspectMode: e.target.value as any }))}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                >
+                  <option value="pad_square">Pad Square / Letterbox (YOLO Standard)</option>
+                  <option value="center_crop">Center Crop Square (ViT / LoRA)</option>
+                  <option value="original">Preserve Original Aspect (OpenCV)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Sampling Strategy */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                  Sampling Strategy
+                </label>
+                <select
+                  value={config.samplingMethod}
+                  onChange={(e) => setConfig(prev => ({ ...prev, samplingMethod: e.target.value as any }))}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                >
+                  <option value="interval">Time Interval (Seconds)</option>
+                  <option value="fps">Sample Rate (FPS)</option>
+                  <option value="total_frames">Exact Total Frame Count</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                  {config.samplingMethod === 'interval' ? 'Interval (Seconds)' : config.samplingMethod === 'fps' ? 'Frames Per Second' : 'Target Frame Count'}
+                </label>
+                <input
+                  type="number"
+                  step={0.1}
+                  value={config.samplingValue}
+                  onChange={(e) => setConfig(prev => ({ ...prev, samplingValue: parseFloat(e.target.value) || 1 }))}
+                  className="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: AI QUALITY FILTERS & SPLIT PROPORTIONS */}
+        <div className="lg:col-span-6 space-y-4">
+          <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-purple-600" />
+              <span>2. Quality Cleaning & Train/Val Split</span>
+            </h3>
+
+            <div className="space-y-2.5">
+              <label className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">
+                    Laplacian Blur Filtering
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Automatically discard motion-blurred or out-of-focus frames
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={config.filterBlur}
+                  onChange={(e) => setConfig(prev => ({ ...prev, filterBlur: e.target.checked }))}
+                  className="rounded text-purple-600 accent-purple-600 w-4 h-4"
+                />
+              </label>
+
+              <label className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">
+                    Duplicate Frame Suppression
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Eliminate consecutive near-identical frames to prevent model overfitting
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={config.deduplicate}
+                  onChange={(e) => setConfig(prev => ({ ...prev, deduplicate: e.target.checked }))}
+                  className="rounded text-purple-600 accent-purple-600 w-4 h-4"
+                />
+              </label>
+            </div>
+
+            {/* Train / Val / Test Split Controls */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                <span>Train / Val / Test Distribution</span>
+                <span className="font-mono text-purple-600 font-bold">
+                  {config.splitRatio.train}% Train • {config.splitRatio.val}% Val • {config.splitRatio.test}% Test
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfig(prev => ({ ...prev, splitRatio: { train: 80, val: 10, test: 10 } }))}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${config.splitRatio.train === 80 ? 'bg-purple-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                >
+                  80 / 10 / 10
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig(prev => ({ ...prev, splitRatio: { train: 70, val: 20, test: 10 } }))}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${config.splitRatio.train === 70 ? 'bg-purple-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                >
+                  70 / 20 / 10
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfig(prev => ({ ...prev, splitRatio: { train: 100, val: 0, test: 0 } }))}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${config.splitRatio.train === 100 ? 'bg-purple-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                >
+                  100% All Train
+                </button>
+              </div>
+            </div>
+
+            {/* Action Trigger Button */}
+            <button
+              onClick={handleStartExtraction}
+              disabled={isExtracting || isLoadingDemo}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
+            >
+              {isExtracting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Extracting AI Training Frames...</span>
+                </>
+              ) : isLoadingDemo ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Generating Sample Video...</span>
+                </>
+              ) : !videoFile ? (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Try Sample Video & Generate ML Dataset ({activePresetInfo.shortLabel})</span>
+                </>
+              ) : (
+                <>
+                  <BrainCircuit className="w-4 h-4" />
+                  <span>Generate ML Dataset ({activePresetInfo.shortLabel})</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
