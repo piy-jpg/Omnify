@@ -8,6 +8,7 @@
     "api/index.js": {
       "includeFiles": [
         "bin/**",
+        "backend/bin/**",
         "node_modules/@ffmpeg-installer/**",
         "node_modules/@ffprobe-installer/**",
         "node_modules/ffmpeg-static/**",
@@ -19,6 +20,7 @@
     "api/*.js": {
       "includeFiles": [
         "bin/**",
+        "backend/bin/**",
         "node_modules/@ffmpeg-installer/**",
         "node_modules/@ffprobe-installer/**",
         "node_modules/ffmpeg-static/**",

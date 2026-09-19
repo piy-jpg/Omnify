@@ -16,6 +16,24 @@ let cachedFfmpegPath = null;
 let cachedFfprobePath = null;
 
 /**
+ * Resolve bundled gz asset relative to this file via ESM new URL
+ */
+function getBundledGzPath(gzFileName) {
+  const urlCandidates = [
+    new URL(`../../bin/${gzFileName}`, import.meta.url),
+    new URL(`../bin/${gzFileName}`, import.meta.url),
+    new URL(`./bin/${gzFileName}`, import.meta.url)
+  ];
+  for (const u of urlCandidates) {
+    try {
+      const p = fileURLToPath(u);
+      if (fs.existsSync(p)) return p;
+    } catch (_) {}
+  }
+  return null;
+}
+
+/**
  * Unpack pre-bundled gzipped static binary to /tmp
  */
 function unpackGzBinary(binaryName, gzFileName) {
@@ -27,14 +45,16 @@ function unpackGzBinary(binaryName, gzFileName) {
     }
 
     const candidateGzPaths = [
+      getBundledGzPath(gzFileName),
       path.resolve(process.cwd(), 'bin', gzFileName),
+      path.resolve(process.cwd(), '../bin', gzFileName),
       path.resolve('/var/task/bin', gzFileName),
       path.resolve('/var/task/api/bin', gzFileName),
       path.resolve(__dirname, '../../bin', gzFileName),
       path.resolve(__dirname, '../../../bin', gzFileName),
       path.resolve(__dirname, '../bin', gzFileName),
       path.resolve(__dirname, './bin', gzFileName)
-    ];
+    ].filter(Boolean);
 
     let foundGz = null;
     for (const gzPath of candidateGzPaths) {
@@ -49,10 +69,15 @@ function unpackGzBinary(binaryName, gzFileName) {
     }
 
     if (foundGz) {
+      console.log(`[FFmpeg Helper] Unpacking ${foundGz} to ${destPath}...`);
       const gzBuf = fs.readFileSync(foundGz);
       const unzipped = zlib.gunzipSync(gzBuf);
-      fs.writeFileSync(destPath, unzipped);
+      try {
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      } catch (_) {}
+      fs.writeFileSync(destPath, unzipped, { mode: 0o755 });
       fs.chmodSync(destPath, 0o755);
+      console.log(`[FFmpeg Helper] Successfully unpacked ${binaryName} (${unzipped.length} bytes) to ${destPath}`);
       return destPath;
     }
   } catch (err) {
