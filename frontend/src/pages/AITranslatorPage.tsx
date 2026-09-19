@@ -24,7 +24,8 @@ import {
   CheckCircle2,
   FolderOpen,
   Mic,
-  MicOff
+  MicOff,
+  VolumeX
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { TranslatorHeader } from '../components/translator/TranslatorHeader';
@@ -87,7 +88,9 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
   const [isRefining, setIsRefining] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isSpeakingSource, setIsSpeakingSource] = useState(false);
+  const [isSpeakingTarget, setIsSpeakingTarget] = useState(false);
+  const isSpeaking = isSpeakingTarget;
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
   const [showDiff, setShowDiff] = useState(false);
@@ -425,24 +428,54 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  // Text to Speech
-  const handleSpeak = () => {
-    if (!translatedText || typeof window === 'undefined' || !window.speechSynthesis) return;
+  // Text to Speech for Source Text
+  const handleSpeakSource = () => {
+    if (!sourceText.trim() || typeof window === 'undefined' || !window.speechSynthesis) return;
 
-    if (isSpeaking) {
+    if (isSpeakingSource) {
       window.speechSynthesis.cancel();
-      setIsSpeaking(false);
+      setIsSpeakingSource(false);
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(translatedText);
-    utterance.lang = targetLang.code;
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.cancel();
+    setIsSpeakingTarget(false);
 
-    setIsSpeaking(true);
+    const utterance = new SpeechSynthesisUtterance(sourceText);
+    const langCode = sourceLang.code === 'auto' 
+      ? (detectedLangName ? (SUPPORTED_LANGUAGES.find(l => l.name.toLowerCase() === detectedLangName.toLowerCase())?.code || 'en') : 'en')
+      : sourceLang.code;
+    utterance.lang = langCode;
+    utterance.onend = () => setIsSpeakingSource(false);
+    utterance.onerror = () => setIsSpeakingSource(false);
+
+    setIsSpeakingSource(true);
     window.speechSynthesis.speak(utterance);
   };
+
+  // Text to Speech for Translated Output
+  const handleSpeakTarget = () => {
+    if (!translatedText.trim() || typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    if (isSpeakingTarget) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingTarget(false);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    setIsSpeakingSource(false);
+
+    const utterance = new SpeechSynthesisUtterance(translatedText);
+    utterance.lang = targetLang.code;
+    utterance.onend = () => setIsSpeakingTarget(false);
+    utterance.onerror = () => setIsSpeakingTarget(false);
+
+    setIsSpeakingTarget(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleSpeak = handleSpeakTarget;
 
   // Sample Templates for Fast Testing
   const sampleTemplates = [
@@ -654,14 +687,32 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
             {/* Left Source Text Input */}
             <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col overflow-hidden">
               <div className="flex items-center justify-between p-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-xs font-bold text-slate-500">
-                <span>Source Text ({sourceLang.name})</span>
+                <div className="flex items-center gap-2">
+                  <span>Source Text ({sourceLang.name})</span>
+                  {sourceText.trim() && (
+                    <button
+                      type="button"
+                      onClick={handleSpeakSource}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer ${
+                        isSpeakingSource
+                          ? 'bg-brand-500 text-white animate-pulse shadow-xs'
+                          : 'text-slate-500 hover:text-brand-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                      title={isSpeakingSource ? 'Stop listening' : `Listen to ${sourceLang.name} source text`}
+                    >
+                      {isSpeakingSource ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5" />}
+                      <span>{isSpeakingSource ? 'Speaking...' : 'Listen'}</span>
+                    </button>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-2 text-slate-400 font-mono text-[11px]">
                   <span>{sourceText.split(/\s+/).filter(Boolean).length} words</span>
                   <span>&bull;</span>
                   <span>{sourceText.length} chars</span>
                   <button
                     onClick={handleToggleVoiceInput}
-                    className={`p-1 rounded-lg transition-all ${
+                    className={`p-1 rounded-lg transition-all cursor-pointer ${
                       isListening
                         ? 'bg-rose-500 text-white animate-pulse'
                         : 'text-slate-400 hover:text-brand-600 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -678,7 +729,7 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                         setLastTranslatedSource('');
                         setTranslationSuccess(false);
                       }}
-                      className="text-slate-400 hover:text-rose-500 ml-1 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                      className="text-slate-400 hover:text-rose-500 ml-1 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                       title="Clear text"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -701,10 +752,28 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
             {/* Right Translated Text Output */}
             <div className="rounded-3xl bg-white dark:bg-slate-900 border border-brand-200 dark:border-brand-900/60 shadow-sm flex flex-col overflow-hidden ring-1 ring-brand-500/10">
               <div className="flex items-center justify-between p-3.5 border-b border-brand-100 dark:border-brand-950/60 bg-brand-50/30 dark:bg-brand-950/30 text-xs font-bold text-brand-700 dark:text-brand-300">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Translated Result ({targetLang.name})
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Translated Result ({targetLang.name})
+                  </span>
+                  {translatedText.trim() && (
+                    <button
+                      type="button"
+                      onClick={handleSpeakTarget}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] font-bold cursor-pointer ${
+                        isSpeakingTarget
+                          ? 'bg-brand-600 text-white animate-pulse shadow-xs'
+                          : 'text-brand-700 dark:text-brand-300 hover:bg-brand-100/80 dark:hover:bg-brand-900/60'
+                      }`}
+                      title={isSpeakingTarget ? 'Stop listening' : `Listen to ${targetLang.name} translation`}
+                    >
+                      {isSpeakingTarget ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5" />}
+                      <span>{isSpeakingTarget ? 'Speaking...' : 'Listen'}</span>
+                    </button>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-2 text-slate-400 font-mono text-[11px]">
                   <span>{translatedText.split(/\s+/).filter(Boolean).length} words</span>
                   <span>&bull;</span>
