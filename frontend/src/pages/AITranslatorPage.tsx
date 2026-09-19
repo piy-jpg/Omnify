@@ -22,7 +22,9 @@ import {
   Presentation,
   Image as ImageIcon,
   CheckCircle2,
-  FolderOpen
+  FolderOpen,
+  Mic,
+  MicOff
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { TranslatorHeader } from '../components/translator/TranslatorHeader';
@@ -62,10 +64,10 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
 
   // Language state
   const [sourceLang, setSourceLang] = useState<LanguageItem>(
-    AI_TRANSLATOR_SOURCE_LANGUAGES[0] // English only
+    AUTO_DETECT_LANGUAGE
   );
   const [targetLang, setTargetLang] = useState<LanguageItem>(
-    AI_TRANSLATOR_TARGET_LANGUAGES[0] // Hindi default
+    getLanguageByCode('hi') // Hindi default
   );
   const [detectedLangName, setDetectedLangName] = useState<string | null>(null);
 
@@ -80,14 +82,14 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
   const [sourceText, setSourceText] = useState('');
   const [translatedText, setTranslatedText] = useState('');
   const [lastTranslatedSource, setLastTranslatedSource] = useState('');
-  const [lastTranslatedTarget, setLastTranslatedTarget] = useState(
-    (AI_TRANSLATOR_TARGET_LANGUAGES[0] || {}).code || 'hi'
-  );
+  const [lastTranslatedTarget, setLastTranslatedTarget] = useState('hi');
   const [isTranslating, setIsTranslating] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [translationSuccess, setTranslationSuccess] = useState(false);
@@ -129,11 +131,85 @@ export const AITranslatorPage: React.FC<AITranslatorPageProps> = ({
     } catch {}
   }, [history]);
 
-  // Handle Swap/Cycle Target Language (source is always English)
+  // Handle Swap Source & Target Languages (with instant text reversal if exists)
   const handleSwapLanguages = () => {
-    const currentIdx = AI_TRANSLATOR_TARGET_LANGUAGES.findIndex(l => l.code === targetLang.code);
-    const nextIdx = (currentIdx + 1) % AI_TRANSLATOR_TARGET_LANGUAGES.length;
-    setTargetLang(AI_TRANSLATOR_TARGET_LANGUAGES[nextIdx]);
+    let newSource: LanguageItem;
+    let newTarget: LanguageItem;
+
+    if (sourceLang.code === 'auto') {
+      const resolvedSource = detectedLangName
+        ? (SUPPORTED_LANGUAGES.find(l => l.name.toLowerCase() === detectedLangName.toLowerCase()) || getLanguageByCode('en'))
+        : getLanguageByCode('en');
+      newSource = targetLang;
+      newTarget = resolvedSource;
+    } else {
+      newSource = targetLang;
+      newTarget = sourceLang;
+    }
+
+    setSourceLang(newSource);
+    setTargetLang(newTarget);
+
+    if (translatedText.trim()) {
+      const oldSource = sourceText;
+      const oldTarget = translatedText;
+      setSourceText(oldTarget);
+      setTranslatedText(oldSource);
+      setLastTranslatedSource(oldTarget);
+      setLastTranslatedTarget(newTarget.code);
+    }
+  };
+
+  // Voice Dictation (Speech to Text Input)
+  const handleToggleVoiceInput = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setErrorMessage('Voice dictation is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = sourceLang.code === 'auto' ? 'en-US' : sourceLang.code;
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            transcript += event.results[i][0].transcript + ' ';
+          }
+        }
+        if (transcript) {
+          setSourceText(prev => prev ? `${prev} ${transcript.trim()}` : transcript.trim());
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsListening(true);
+    } catch (err) {
+      console.error('Speech recognition error:', err);
+      setIsListening(false);
+    }
   };
 
   // Direct Text Translation Trigger
@@ -448,8 +524,8 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
           <div className="md:col-span-1 flex justify-center items-center pt-3 md:pt-4">
             <button
               onClick={handleSwapLanguages}
-              className="p-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-brand-50 dark:hover:bg-brand-950/60 text-slate-600 dark:text-slate-300 hover:text-brand-600 dark:hover:text-brand-400 border border-slate-200/80 dark:border-slate-700 transition-all hover:scale-110 active:scale-90 shadow-xs"
-              title="Switch target language (Hindi / Gujarati / Marathi)"
+              className="p-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-brand-50 dark:hover:bg-brand-950/60 text-slate-600 dark:text-slate-300 hover:text-brand-600 dark:hover:text-brand-400 border border-slate-200/80 dark:border-slate-700 transition-all hover:scale-110 active:scale-90 shadow-xs cursor-pointer"
+              title="Swap source & target languages"
             >
               <ArrowLeftRight className="w-4 h-4" />
             </button>
@@ -583,6 +659,17 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                   <span>{sourceText.split(/\s+/).filter(Boolean).length} words</span>
                   <span>&bull;</span>
                   <span>{sourceText.length} chars</span>
+                  <button
+                    onClick={handleToggleVoiceInput}
+                    className={`p-1 rounded-lg transition-all ${
+                      isListening
+                        ? 'bg-rose-500 text-white animate-pulse'
+                        : 'text-slate-400 hover:text-brand-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                    title={isListening ? 'Stop voice dictation' : 'Start voice dictation (Speak to translate)'}
+                  >
+                    {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                  </button>
                   {sourceText && (
                     <button
                       onClick={() => {
@@ -591,7 +678,7 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
                         setLastTranslatedSource('');
                         setTranslationSuccess(false);
                       }}
-                      className="text-slate-400 hover:text-rose-500 ml-1"
+                      className="text-slate-400 hover:text-rose-500 ml-1 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
                       title="Clear text"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -855,9 +942,8 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
         onClose={() => setIsSourceModalOpen(false)}
         onSelectLanguage={setSourceLang}
         selectedLanguageCode={sourceLang.code}
-        allowAutoDetect={false}
+        allowAutoDetect={true}
         title="Select Source Language"
-        restrictedLanguages={AI_TRANSLATOR_SOURCE_LANGUAGES}
       />
 
       <LanguageSelectorModal
@@ -867,7 +953,6 @@ All core conversion engines and cloud storage vaults will remain fully accessibl
         selectedLanguageCode={targetLang.code}
         allowAutoDetect={false}
         title="Select Target Language"
-        restrictedLanguages={AI_TRANSLATOR_TARGET_LANGUAGES}
       />
 
       {/* 6. Translation History Drawer */}

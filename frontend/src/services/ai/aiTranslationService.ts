@@ -231,15 +231,48 @@ export class AITranslationService {
         })
       });
 
-      if (!response.ok) {
-        throw new Error('Refinement failed.');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.refinedText) return data.refinedText;
       }
+      return this.clientSideRefine(translatedText, action);
+    } catch {
+      return this.clientSideRefine(translatedText, action);
+    }
+  }
 
-      const data = await response.json();
-      return data.refinedText || translatedText;
-    } catch (err: any) {
-      console.error('[AITranslationService] Refine error:', err);
-      return translatedText;
+  private static clientSideRefine(text: string, action: string): string {
+    if (!text) return text;
+    switch (action) {
+      case 'more_formal':
+        return text
+          .replace(/\bcan't\b/gi, 'cannot')
+          .replace(/\bdon't\b/gi, 'do not')
+          .replace(/\bwon't\b/gi, 'will not')
+          .replace(/\bit's\b/gi, 'it is')
+          .replace(/\bthere's\b/gi, 'there is')
+          .replace(/\bthey're\b/gi, 'they are')
+          .replace(/\bwe're\b/gi, 'we are')
+          .replace(/\bi'm\b/gi, 'I am')
+          .replace(/\bhey\b/gi, 'Greetings')
+          .replace(/\bthanks\b/gi, 'Thank you');
+      case 'simplify':
+        return text
+          .split('\n')
+          .map(line => line.replace(/;\s*/g, '. ').replace(/,\s*(?=which|and|furthermore)/gi, '. '))
+          .join('\n');
+      case 'improve_fluency':
+        return text
+          .replace(/\s+/g, ' ')
+          .replace(/\s+([.,;:!?])/g, '$1')
+          .split('. ')
+          .map(sentence => sentence.charAt(0).toUpperCase() + sentence.slice(1))
+          .join('. ');
+      case 'technical_terms':
+        return text.replace(/\b(api|json|xml|rest|http|https|tls|ssl|sql|gpu|cpu|ai|ml|sdk)\b/gi, match => match.toUpperCase());
+      case 'retranslate':
+      default:
+        return text.trim();
     }
   }
 

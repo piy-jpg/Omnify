@@ -158,21 +158,11 @@ export function searchLanguages(query: string): LanguageItem[] {
 }
 
 /**
- * AI Translator supported languages (English → Hindi, Gujarati, Marathi only)
+ * AI Translator supported languages (Full 100+ global & regional multilingual suite)
  */
-export const AI_TRANSLATOR_SOURCE_LANGUAGES: LanguageItem[] = [
-  { code: 'en', name: 'English', nativeName: 'English', flag: '🇺🇸', popular: true },
-];
+export const AI_TRANSLATOR_SOURCE_LANGUAGES: LanguageItem[] = SUPPORTED_LANGUAGES;
 
-export const AI_TRANSLATOR_TARGET_LANGUAGES: LanguageItem[] = [
-  { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी', flag: '🇮🇳', popular: true },
-  { code: 'gu', name: 'Gujarati', nativeName: 'ગુજરાતી', flag: '🇮🇳', popular: true },
-  { code: 'mr', name: 'Marathi', nativeName: 'मराठी', flag: '🇮🇳', popular: true },
-];
+export const AI_TRANSLATOR_TARGET_LANGUAGES: LanguageItem[] = SUPPORTED_LANGUAGES;
 
-export const AI_TRANSLATOR_ALL_LANGUAGES: LanguageItem[] = [
-  { code: 'en', name: 'English', nativeName: 'English', flag: '🇺🇸', popular: true },
-  { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी', flag: '🇮🇳', popular: true },
-  { code: 'gu', name: 'Gujarati', nativeName: 'ગુજરાતી', flag: '🇮🇳', popular: true },
-  { code: 'mr', name: 'Marathi', nativeName: 'मराठी', flag: '🇮🇳', popular: true },
-];
+export const AI_TRANSLATOR_ALL_LANGUAGES: LanguageItem[] = SUPPORTED_LANGUAGES;
+
