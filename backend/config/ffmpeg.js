@@ -221,11 +221,125 @@ export function getFfprobePath() {
   return 'ffprobe';
 }
 
+import https from 'https';
+import zlib from 'zlib';
+
+/**
+ * Download and extract a gzip-compressed binary directly to the target path
+ */
+function downloadAndExtract(url, destPath) {
+  return new Promise((resolve, reject) => {
+    const tempDest = `${destPath}.tmp_${Date.now()}`;
+    const fileStream = fs.createWriteStream(tempDest);
+
+    function requestUrl(targetUrl) {
+      https.get(targetUrl, { headers: { 'User-Agent': 'Omnify-Serverless' } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return requestUrl(res.headers.location);
+        }
+        if (res.statusCode !== 200) {
+          fileStream.close();
+          try { if (fs.existsSync(tempDest)) fs.unlinkSync(tempDest); } catch (_) {}
+          return reject(new Error(`Failed to download binary: HTTP ${res.statusCode}`));
+        }
+
+        const isGz = targetUrl.endsWith('.gz') || res.headers['content-encoding'] === 'gzip';
+        const stream = isGz ? res.pipe(zlib.createGunzip()) : res;
+
+        stream.pipe(fileStream);
+
+        fileStream.on('finish', () => {
+          fileStream.close(() => {
+            try {
+              fs.renameSync(tempDest, destPath);
+              fs.chmodSync(destPath, 0o755);
+              resolve(destPath);
+            } catch (err) {
+              reject(err);
+            }
+          });
+        });
+
+        stream.on('error', (err) => {
+          fileStream.close();
+          try { if (fs.existsSync(tempDest)) fs.unlinkSync(tempDest); } catch (_) {}
+          reject(err);
+        });
+      }).on('error', (err) => {
+        fileStream.close();
+        try { if (fs.existsSync(tempDest)) fs.unlinkSync(tempDest); } catch (_) {}
+        reject(err);
+      });
+    }
+
+    requestUrl(url);
+  });
+}
+
+/**
+ * Ensure FFmpeg binary is available on disk (synchronous candidates or background fetch)
+ */
+export async function ensureFfmpegPath() {
+  const syncPath = getFfmpegPath();
+  if (syncPath && syncPath !== 'ffmpeg' && fs.existsSync(syncPath)) {
+    return syncPath;
+  }
+
+  const tempFfmpeg = path.join(os.tmpdir(), 'ffmpeg');
+  if (fs.existsSync(tempFfmpeg)) {
+    try {
+      fs.chmodSync(tempFfmpeg, 0o755);
+      cachedFfmpegPath = tempFfmpeg;
+      return tempFfmpeg;
+    } catch (_) {}
+  }
+
+  try {
+    const platform = process.env.npm_config_platform || os.platform();
+    const arch = process.env.npm_config_arch || os.arch();
+    const dlUrl = `https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-${platform}-${arch}.gz`;
+    console.log(`[FFmpeg Helper] Auto-fetching static binary for ${platform}-${arch}...`);
+    await downloadAndExtract(dlUrl, tempFfmpeg);
+    cachedFfmpegPath = tempFfmpeg;
+    return tempFfmpeg;
+  } catch (err) {
+    console.warn('[FFmpeg Helper] Auto-fetch failed:', err.message);
+    return getFfmpegPath();
+  }
+}
+
+/**
+ * Ensure FFprobe binary is available on disk
+ */
+export async function ensureFfprobePath() {
+  const syncPath = getFfprobePath();
+  if (syncPath && syncPath !== 'ffprobe' && fs.existsSync(syncPath)) {
+    return syncPath;
+  }
+
+  const tempFfprobe = path.join(os.tmpdir(), 'ffprobe');
+  if (fs.existsSync(tempFfprobe)) {
+    try {
+      fs.chmodSync(tempFfprobe, 0o755);
+      cachedFfprobePath = tempFfprobe;
+      return tempFfprobe;
+    } catch (_) {}
+  }
+
+  return getFfprobePath();
+}
+
+/**
+ * Warm up binaries asynchronously in the background on module import
+ */
+ensureFfmpegPath().catch(() => {});
+ensureFfprobePath().catch(() => {});
+
 /**
  * Execute FFmpeg command string with resolved binary path
  */
 export async function execFfmpegCommand(commandAfterFfmpeg) {
-  const binary = getFfmpegPath();
+  const binary = await ensureFfmpegPath();
   const fullCommand = `"${binary}" ${commandAfterFfmpeg}`;
   return execAsync(fullCommand);
 }
@@ -234,7 +348,7 @@ export async function execFfmpegCommand(commandAfterFfmpeg) {
  * Execute FFprobe command string with resolved binary path
  */
 export async function execFfprobeCommand(commandAfterFfprobe) {
-  const binary = getFfprobePath();
+  const binary = await ensureFfprobePath();
   const fullCommand = `"${binary}" ${commandAfterFfprobe}`;
   return execAsync(fullCommand);
 }
