@@ -85,6 +85,15 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cancelRef = useRef(false);
 
+  const [isLoadingDemo, setIsLoadingDemo] = useState(false);
+
+  // Sync with initialVideoFile from parent
+  useEffect(() => {
+    if (initialVideoFile) {
+      setVideoFile(initialVideoFile);
+    }
+  }, [initialVideoFile]);
+
   // Update video source on file change
   useEffect(() => {
     if (videoFile) {
@@ -97,6 +106,20 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
       };
     }
   }, [videoFile]);
+
+  // Load Synthetic Demo Video
+  const handleLoadDemo = async () => {
+    setIsLoadingDemo(true);
+    try {
+      const demoBlob = await generateDemoVideoBlob();
+      const demoFile = new File([demoBlob], 'Sample_AI_Dataset_Video.webm', { type: 'video/webm' });
+      setVideoFile(demoFile);
+    } catch (e) {
+      console.error('Demo video generation failed', e);
+    } finally {
+      setIsLoadingDemo(false);
+    }
+  };
 
   // Handle Preset Change
   const handlePresetSelect = (preset: MLFrameworkPreset) => {
@@ -189,9 +212,29 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
           <p className="text-xs text-slate-600 dark:text-slate-400">
             Convert video clips into clean, deduplicated, and normalized image datasets structured for <strong>YOLO, PyTorch, TensorFlow, LoRA, and OpenCV</strong> training.
           </p>
+          {videoFile && (
+            <div className="flex items-center gap-3 pt-1 text-[11px] text-purple-700 dark:text-purple-300 font-medium">
+              <span className="flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                <strong>{videoFile.name}</strong> ({formatBytes(videoFile.size)})
+              </span>
+              {videoWidth > 0 && (
+                <span>• {videoWidth}×{videoHeight} • {videoDuration.toFixed(1)}s</span>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            onClick={handleLoadDemo}
+            disabled={isLoadingDemo || isExtracting}
+            className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 hover:bg-purple-50 dark:hover:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 transition-all shadow-xs flex items-center gap-1.5"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+            <span>{isLoadingDemo ? 'Generating Sample...' : 'Try Sample Video'}</span>
+          </button>
+
           <input
             type="file"
             ref={fileInputRef}
@@ -417,14 +460,24 @@ export const MLDatasetExtractorView: React.FC<MLDatasetExtractorViewProps> = ({ 
 
             {/* Trigger Button */}
             <button
-              onClick={handleStartExtraction}
-              disabled={isExtracting || !videoFile}
-              className="w-full py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+              onClick={videoFile ? handleStartExtraction : handleLoadDemo}
+              disabled={isExtracting || isLoadingDemo}
+              className="w-full py-3 rounded-2xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               {isExtracting ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
                   <span>Extracting AI Training Frames...</span>
+                </>
+              ) : isLoadingDemo ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Loading Sample Video...</span>
+                </>
+              ) : !videoFile ? (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Load Sample Video & Extract Dataset</span>
                 </>
               ) : (
                 <>

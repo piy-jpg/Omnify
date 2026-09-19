@@ -224,12 +224,26 @@ export async function extractMLDatasetFrames(
 
     const time = timestamps[i];
 
-    // Seek video
+    // Seek video safely with timeout fallback
     await new Promise<void>((resolve) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          videoElement.removeEventListener('seeked', handleSeeked);
+          resolve();
+        }
+      }, 1200);
+
       const handleSeeked = () => {
-        videoElement.removeEventListener('seeked', handleSeeked);
-        resolve();
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          videoElement.removeEventListener('seeked', handleSeeked);
+          resolve();
+        }
       };
+
       videoElement.addEventListener('seeked', handleSeeked, { once: true });
       videoElement.currentTime = time;
     });
