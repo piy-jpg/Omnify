@@ -7,6 +7,8 @@
   "functions": {
     "api/index.js": {
       "includeFiles": [
+        "node_modules/@ffmpeg-installer/**",
+        "node_modules/@ffprobe-installer/**",
         "node_modules/ffmpeg-static/**",
         "node_modules/ffprobe-static/**"
       ],
@@ -15,6 +17,8 @@
     },
     "api/*.js": {
       "includeFiles": [
+        "node_modules/@ffmpeg-installer/**",
+        "node_modules/@ffprobe-installer/**",
         "node_modules/ffmpeg-static/**",
         "node_modules/ffprobe-static/**"
       ],

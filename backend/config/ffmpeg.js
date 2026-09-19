@@ -95,7 +95,7 @@ export function getFfmpegPath() {
     }
   }
 
-  // 2. Resolve ffmpeg-static import (handling CJS/ESM interop)
+  // 2. Resolve ffmpeg-static and @ffmpeg-installer import
   const staticPath = typeof ffmpegStatic === 'string'
     ? ffmpegStatic
     : (ffmpegStatic?.default || ffmpegStatic?.path || null);
@@ -104,8 +104,13 @@ export function getFfmpegPath() {
     staticPath,
     path.join(os.tmpdir(), 'ffmpeg'),
     '/tmp/ffmpeg',
+    path.resolve(process.cwd(), 'node_modules/@ffmpeg-installer/linux-x64/ffmpeg'),
+    path.resolve(process.cwd(), 'node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg'),
+    path.resolve(process.cwd(), 'node_modules/@ffmpeg-installer/darwin-x64/ffmpeg'),
+    path.resolve('/var/task/node_modules/@ffmpeg-installer/linux-x64/ffmpeg'),
     path.resolve(process.cwd(), 'node_modules/ffmpeg-static/ffmpeg'),
     path.resolve('/var/task/node_modules/ffmpeg-static/ffmpeg'),
+    path.resolve(__dirname, '../../node_modules/@ffmpeg-installer/linux-x64/ffmpeg'),
     path.resolve(__dirname, '../../node_modules/ffmpeg-static/ffmpeg'),
     path.resolve(__dirname, '../../../node_modules/ffmpeg-static/ffmpeg'),
     path.resolve(__dirname, '../node_modules/ffmpeg-static/ffmpeg'),
@@ -128,9 +133,11 @@ export function getFfmpegPath() {
 
   // 3. Fallback: search node_modules directories dynamically
   const searchDirs = [
+    path.resolve(process.cwd(), 'node_modules/@ffmpeg-installer'),
+    path.resolve('/var/task/node_modules/@ffmpeg-installer'),
     path.resolve(process.cwd(), 'node_modules/ffmpeg-static'),
     path.resolve('/var/task/node_modules/ffmpeg-static'),
-    path.resolve(__dirname, '../../node_modules/ffmpeg-static')
+    path.resolve(__dirname, '../../node_modules')
   ];
 
   for (const searchDir of searchDirs) {
@@ -144,7 +151,6 @@ export function getFfmpegPath() {
     }
   }
 
-  // 4. Fallback to system ffmpeg command
   return 'ffmpeg';
 }
 
@@ -165,7 +171,7 @@ export function getFfprobePath() {
     }
   }
 
-  // 2. Resolve ffprobe-static import (handling CJS/ESM interop)
+  // 2. Resolve ffprobe-static and @ffprobe-installer import
   const staticPath = typeof ffprobeStatic === 'string'
     ? ffprobeStatic
     : (ffprobeStatic?.path || ffprobeStatic?.default?.path || ffprobeStatic?.default || null);
@@ -181,6 +187,8 @@ export function getFfprobePath() {
     path.resolve(process.cwd(), 'node_modules/ffprobe-static/bin/win32/x64/ffprobe.exe'),
     path.resolve('/var/task/node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
     path.resolve('/var/task/node_modules/ffprobe-static/bin/linux/arm64/ffprobe'),
+    path.resolve(process.cwd(), 'node_modules/@ffprobe-installer/linux-x64/ffprobe'),
+    path.resolve('/var/task/node_modules/@ffprobe-installer/linux-x64/ffprobe'),
     path.resolve(__dirname, '../../node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
     path.resolve(__dirname, '../../node_modules/ffprobe-static/bin/darwin/arm64/ffprobe'),
     path.resolve(__dirname, '../../../node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
@@ -203,7 +211,9 @@ export function getFfprobePath() {
   const searchDirs = [
     path.resolve(process.cwd(), 'node_modules/ffprobe-static'),
     path.resolve('/var/task/node_modules/ffprobe-static'),
-    path.resolve(__dirname, '../../node_modules/ffprobe-static')
+    path.resolve(process.cwd(), 'node_modules/@ffprobe-installer'),
+    path.resolve('/var/task/node_modules/@ffprobe-installer'),
+    path.resolve(__dirname, '../../node_modules')
   ];
 
   for (const searchDir of searchDirs) {
@@ -217,7 +227,6 @@ export function getFfprobePath() {
     }
   }
 
-  // 4. Fallback to system ffprobe command
   return 'ffprobe';
 }
 
@@ -274,18 +283,28 @@ export async function ensureFfmpegPath() {
     } catch (_) {}
   }
 
-  try {
-    const platform = process.env.npm_config_platform || os.platform();
-    const arch = process.env.npm_config_arch || os.arch();
-    const dlUrl = `https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-${platform}-${arch}.gz`;
-    console.log(`[FFmpeg Helper] Auto-fetching static binary for ${platform}-${arch}...`);
-    await downloadAndExtract(dlUrl, tempFfmpeg);
-    cachedFfmpegPath = tempFfmpeg;
-    return tempFfmpeg;
-  } catch (err) {
-    console.warn('[FFmpeg Helper] Auto-fetch failed:', err.message);
-    return getFfmpegPath();
+  const platform = process.env.npm_config_platform || os.platform();
+  const arch = process.env.npm_config_arch || os.arch();
+
+  const downloadUrls = [
+    `https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-${platform}-${arch}`,
+    `https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-${platform}-${arch}.gz`,
+    `https://github.com/eugeneware/ffmpeg-static/releases/download/b5.2.0/ffmpeg-${platform}-${arch}`,
+    `https://github.com/eugeneware/ffmpeg-static/releases/download/b5.2.0/ffmpeg-${platform}-${arch}.gz`
+  ];
+
+  for (const dlUrl of downloadUrls) {
+    try {
+      console.log(`[FFmpeg Helper] Attempting download from ${dlUrl}...`);
+      await downloadAndExtract(dlUrl, tempFfmpeg);
+      cachedFfmpegPath = tempFfmpeg;
+      return tempFfmpeg;
+    } catch (err) {
+      console.warn(`[FFmpeg Helper] Download attempt failed for ${dlUrl}:`, err.message);
+    }
   }
+
+  return getFfmpegPath();
 }
 
 /**
